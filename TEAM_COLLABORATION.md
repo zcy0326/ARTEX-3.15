@@ -20,4 +20,4 @@ ARTEX_PG_DSN='postgres://artex:artex_test@localhost:5432/artex_test?sslmode=disa
   go test -race -p 1 ./agent ./db ./server -count=1
 ```
 
-对应 GitHub Actions 工作流提供 PostgreSQL 16，运行上述三个包的完整竞态与集成测试。纯资料渲染、限流、去重、并发交付和通知合并测试不需要数据库。
+对应 GitHub Actions 工作流提供 PostgreSQL 16，先单独验证本次协作测试，再运行上述三个包的完整竞态与集成测试；同时在独立数据库上检查原始提交，便于区分已有失败与本次回归。纯资料渲染、限流、去重、并发交付和通知合并测试不需要数据库。
