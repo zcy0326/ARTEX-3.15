@@ -88,6 +88,9 @@ type ToolSet struct {
 	// carrying (intentID, summary) so the round can spell out which intent found what.
 	// Wired for workers; nil elsewhere → falls back to notify (bare wake).
 	notifyFinding func(intentID int64, summary string)
+	// Fact notifications carry committed observations to the planner mid-flight.
+	notifyFact  func(intentID int64, summary string)
+	runIntentID int64 // authoritative execution identity; zero outside a worker run
 	// resumeTask, if set, revives the task after a graph change that should make a
 	// stopped task run again (currently: set_goals adds a goal). It flips a terminal/
 	// paused task back to running and (re)starts the engine loops — a plain notify()
@@ -128,6 +131,8 @@ func (t *ToolSet) SetNotify(fn func()) { t.notify = fn }
 
 // SetNotifyFinding wires the finding-wake callback (see ToolSet.notifyFinding).
 func (t *ToolSet) SetNotifyFinding(fn func(int64, string)) { t.notifyFinding = fn }
+
+func (t *ToolSet) SetNotifyFact(fn func(int64, string)) { t.notifyFact = fn }
 
 // EnrichTrigger is the enrichment engine seen from the tool layer (see package
 // enrich). Kept as an interface here to avoid coupling agent → enrich.
@@ -1253,7 +1258,14 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		if err != nil {
 			return actool.Errorf(err.Error()), nil
 		}
-		input := db.RecordFindingInput{TaskID: t.taskID, ExplorationID: t.ts.ID(), IntentID: pid(a.IntentID), VulnClass: a.VulnClass, Name: a.Name, Severity: a.Severity, Summary: a.Summary, Evidence: a.Evidence, Worker: t.worker, AssetIDs: pidList(a.AssetIDs)}
+		intentID := pid(a.IntentID)
+		if intentID <= 0 {
+			intentID = t.runIntentID
+		}
+		if t.runIntentID > 0 && intentID != t.runIntentID {
+			return actool.Errorf("intent_id 必须是当前执行意图；不要将自己的发现归给其他 worker"), nil
+		}
+		input := db.RecordFindingInput{TaskID: t.taskID, ExplorationID: t.ts.ID(), IntentID: intentID, VulnClass: a.VulnClass, Name: a.Name, Severity: a.Severity, Summary: a.Summary, Evidence: a.Evidence, Worker: t.worker, AssetIDs: pidList(a.AssetIDs)}
 		var recorded *db.RecordedFinding
 		if t.findingRecorder != nil {
 			recorded, err = t.findingRecorder.Record(ctx, input, refs)
@@ -1332,6 +1344,12 @@ func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error)
 	if intent <= 0 {
 		intent = defaultIntent
 	}
+	if intent <= 0 {
+		intent = t.runIntentID
+	}
+	if t.runIntentID > 0 && intent != t.runIntentID {
+		return 0, fmt.Errorf("intent_id 必须是当前执行意图；不要将自己的事实归给其他 worker")
+	}
 	if intent > 0 {
 		node, err := t.ts.GetNode(intent)
 		if err != nil || node == nil || node.Kind != db.KindIntent {
@@ -1389,6 +1407,14 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 					continue
 				}
 				ids[i] = id
+			}
+
+			if notice := factNotice(items, ids); notice != "" && t.notifyFact != nil {
+				intentID := t.runIntentID
+				if intentID <= 0 {
+					intentID = defaultIntent
+				}
+				t.notifyFact(intentID, notice)
 			}
 
 			if !batch { // 单条：保持原返回
@@ -1929,7 +1955,7 @@ func (t *ToolSet) getWorkerTrace() actool.CoreTool {
 // summaries (≤100 chars), each tagged with its intent_id for follow-up drill-down.
 func (t *ToolSet) searchAllWorkerTraces() actool.CoreTool {
 	return t.readExpTool("search_all_worker_traces",
-		"【通常不推荐使用，因为系统中已经给了大部分信息了】在【本任务其他 work 的执行过程】里按关键字(q)检索——用于找回某个 worker 见过、却没写进 fact 的东西（某路径/token/报错等）。"+
+		"在【本任务其他 work 的执行过程】里按关键字(q)检索——用于找回某个 worker 见过、却没写进 fact 的东西（某路径/token/报错等）。"+
 			"已自动排除你自己这条意图的步骤（那些本就在你上下文里）。"+
 			"只返回命中步骤的摘要(summary≤100字)，每条带 intent_id；据此再用 get_worker_trace(intent_id, step_ids=[...]) 取完整内容。",
 		obj(map[string]any{
@@ -1978,7 +2004,7 @@ func (t *ToolSet) searchAllWorkerTraces() actool.CoreTool {
 // no process to inspect).
 func (t *ToolSet) listWorkerTraces() actool.CoreTool {
 	return t.readExpTool("list_worker_traces",
-		"【通常不推荐使用，因为系统中已经给了大部分信息了】列出本任务里【已跑过的 work（意图）】索引：intent_id + 一句话方向(summary) + 状态。"+
+		"列出本任务里【已跑过的 work（意图）】索引：intent_id + 一句话方向(summary) + 状态。"+
 			"你(worker)看不到探索图，用它来发现有哪些 work 值得翻看——再用 get_worker_trace(intent_id) 看其步骤、get_worker_trace(intent_id, step_ids=[...]) 取详情。"+
 			"只列已执行的(running/done/exhausted/blocked/stopped)，不含还没跑的 open。注意：你的任务边界仍是你领到的那条意图，看别的 work 只为复用观察/避免重复劳动。",
 		obj(map[string]any{

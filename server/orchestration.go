@@ -491,7 +491,7 @@ func (s *Server) seedOrchestrationTools() {
 	s.seedPlannerDefaultBindings()
 	s.seedPlannerListAssetsBinding()
 	s.seedCompanyScopeRebind()
-	s.seedWorkerReadToolsUnbind() // list_facts/list_companies/list_worker_traces 从 worker 默认解绑(一次性)
+	s.seedWorkerReadToolsUnbind() // 企业范围读取仍留给规划者；团队资料读取由后续迁移升级
 	s.seedWorkerReadbackRebind()  // 修复旧迁移误删：把 search_all_worker_traces/get_worker_trace/node_detail 补绑回 worker(一次性)
 	s.seedAutoReportFindingBinding()
 	s.unbindGoalMetDefault()
@@ -503,6 +503,7 @@ func (s *Server) seedOrchestrationTools() {
 	s.upgradeReporterTriggerMessage() // 老库补迁移:让 reporter 回传 evidence_version(一次性)
 	s.seedFindingTrafficTools()       // 增加可选证据参数及只读证据工具，保留用户配置
 	s.seedFindingWorkflowTools()
+	s.seedTeamCollaboration()
 	// 注：pentest 的默认工具绑定无需迁移——BuiltinToolSeeds 在全新初始化时就把
 	// list_assets/insert_assets/report_finding/list_findings/list_companies 连同
 	// pentest 一起 seed 好了（项目尚无旧库，不做迁移）。
@@ -848,25 +849,16 @@ func (s *Server) seedCompanyScopeRebind() {
 	_ = s.m.pg.SetSetting(flag, "true")
 }
 
-// seedWorkerReadToolsUnbind strips the read-context tools off worker's default
-// binding ONCE on existing DBs (guarded by a settings flag): a worker executes one
-// intent and writes back — reading facts/companies and listing all workers' traces is
-// a planning/main concern, not the executor's. Fresh DBs already lack these via
-// WorkerTools(); this only backfills old rows without overriding a user who
-// deliberately re-binds worker. Each RemoveAgentFromTool is per-tool +
-// membership-guarded, so planner/mainagent bindings of the same tool are untouched.
-//
-// NOTE: search_all_worker_traces / get_worker_trace / node_detail are intentionally NOT
-// unbound — worker owns them for cross-work look-back + node drill-down (see WorkerTools).
-// They used to be in this list back when worker lacked them; seedWorkerReadbackRebind
-// repairs DBs whose old run stripped them.
+// Keep the historical migration flag, but no longer strip cooperative fact/trace
+// readers when initializing a fresh database. Existing defaults are upgraded by
+// seedTeamCollaboration; company-level scope management remains a planning role.
 func (s *Server) seedWorkerReadToolsUnbind() {
 	const flag = "worker_readtools_unbind_v1"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}
 	for _, k := range []string{
-		"list_facts", "list_companies", "list_worker_traces",
+		"list_companies",
 	} {
 		if err := s.m.pg.RemoveAgentFromTool("worker", k); err != nil {
 			log.Printf("[worker] %s 从 worker 解绑失败: %v", k, err)
