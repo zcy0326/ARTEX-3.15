@@ -46,7 +46,7 @@ func TestTeamMigrationPreservesDisableAndSubsequentUnbinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pg.Close()
+	t.Cleanup(func() { _ = pg.Close() })
 	for _, seed := range agent.BuiltinToolSeeds() {
 		if seed.Key == "list_facts" {
 			schema, _ := json.Marshal(seed.Schema)

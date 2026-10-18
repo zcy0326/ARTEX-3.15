@@ -11,7 +11,7 @@ func TestTeamKnowledgeScopesRelevanceAndDeliveredIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(func() { _ = d.Close() })
 	makeTask := func(description string, sources []int64) *Task {
 		t.Helper()
 		task, err := d.CreateTaskWithOptions(description, "fixture", TaskCreateOptions{SourceTaskIDs: sources})
