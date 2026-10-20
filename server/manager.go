@@ -1777,6 +1777,23 @@ func (t *Task) NotifyFinding(intentID int64, summary string) {
 	t.Notify()
 }
 
+// NotifyFact makes committed peer observations visible to the planner before
+// their producer finishes. Coalesce repeated writes by intent during debounce.
+func (t *Task) NotifyFact(intentID int64, summary string) {
+	t.trigMu.Lock()
+	for i := range t.pendingTriggers {
+		if ev := &t.pendingTriggers[i]; ev.Kind == "fact" && ev.IntentID == intentID {
+			ev.Detail = preview(ev.Detail+"；"+summary, 1600)
+			t.trigMu.Unlock()
+			t.Notify()
+			return
+		}
+	}
+	t.pendingTriggers = append(t.pendingTriggers, agent.TriggerEvent{Kind: "fact", IntentID: intentID, Detail: preview(summary, 1600)})
+	t.trigMu.Unlock()
+	t.Notify()
+}
+
 // NotifyGoal records that one OR MORE goals were added in a single set_goals call —
 // by the human via the main agent — then wakes the planner, so the next round spells
 // out "人新增了 N 个目标：…" instead of the planner having to spot new open goals in
