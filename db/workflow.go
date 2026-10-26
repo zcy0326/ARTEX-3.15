@@ -36,6 +36,12 @@ func ValidWorkRole(role string) bool {
 // already exist in this exploration, so new work cannot introduce a cycle.
 // Lineage and execution prerequisites remain different edge relationships.
 func (s *ExplorationStore) AddWork(summary, role, acceptance, origin string, dependencies, verifiedResults []int64) (int64, error) {
+	return s.AddWorkWithInputs(summary, role, acceptance, origin, dependencies, verifiedResults, nil)
+}
+
+// AddWorkWithInputs pins the materials used for adaptation or implementation.
+// Input provenance is separate from execution and validation prerequisites.
+func (s *ExplorationStore) AddWorkWithInputs(summary, role, acceptance, origin string, dependencies, verifiedResults []int64, inputs []WorkInput) (int64, error) {
 	if strings.TrimSpace(summary) == "" || strings.TrimSpace(acceptance) == "" || !ValidWorkRole(role) {
 		return 0, fmt.Errorf("summary、acceptance 必填；role 必须为 analyst/implementer/verifier/integrator")
 	}
@@ -47,6 +53,10 @@ func (s *ExplorationStore) AddWork(summary, role, acceptance, origin string, dep
 		return 0, err
 	}
 	defer tx.Rollback()
+	inputs, err = s.pinWorkInputs(tx, inputs)
+	if err != nil {
+		return 0, err
+	}
 	for _, group := range []struct {
 		ids  []int64
 		kind string
@@ -72,12 +82,20 @@ WHERE id=$1 AND exploration_id=$2 AND state<>'deleted' FOR KEY SHARE`, id, s.exp
 		verifiedResults = []int64{}
 	}
 	payload, _ := json.Marshal(map[string]any{"summary": summary, "work_role": role, "acceptance": acceptance,
-		"depends_on": dependencies, "verified_result_ids": verifiedResults})
+		"depends_on": dependencies, "verified_result_ids": verifiedResults, "inputs": inputs})
 	var id int64
 	err = tx.QueryRow(`INSERT INTO exploration_nodes(exploration_id,kind,payload,priority,state,origin)
 VALUES($1,'intent',$2,5,'open',$3) RETURNING id`, s.expID, string(jsonbClean(payload)), origin).Scan(&id)
 	if err != nil {
 		return 0, err
+	}
+	for _, input := range inputs {
+		if input.NodeID > 0 && input.SourceTaskID == 0 {
+			if _, err = tx.Exec(`INSERT INTO exploration_edges(exploration_id,src_id,dst_id,rel)
+VALUES($1,$2,$3,'derived_from') ON CONFLICT DO NOTHING`, s.expID, input.NodeID, id); err != nil {
+				return 0, err
+			}
+		}
 	}
 	for _, group := range []struct {
 		ids []int64
@@ -90,7 +108,8 @@ VALUES($1,'intent',$2,5,'open',$3) RETURNING id`, s.expID, string(jsonbClean(pay
 		}
 	}
 	_, err = tx.Exec(`INSERT INTO exploration_edges(exploration_id,src_id,dst_id,rel)
-SELECT $1,id,$2,'derived_from' FROM exploration_nodes WHERE exploration_id=$1 AND kind='fact' AND state='origin'`, s.expID, id)
+SELECT $1,id,$2,'derived_from' FROM exploration_nodes WHERE exploration_id=$1 AND kind='fact' AND state='origin'
+ON CONFLICT DO NOTHING`, s.expID, id)
 	if err != nil {
 		return 0, err
 	}
@@ -142,11 +161,29 @@ func (s *ExplorationStore) RecordWorkFact(payload map[string]any, intentID int64
 	}
 	defer tx.Rollback()
 	var kind string
+	var workPayload []byte
 	if intentID <= 0 {
 		return 0, fmt.Errorf("成果必须由当前工作产生")
 	}
-	if err = tx.QueryRow(`SELECT kind FROM exploration_nodes WHERE id=$1 AND exploration_id=$2 AND state='running' FOR UPDATE`, intentID, s.expID).Scan(&kind); err != nil || kind != KindIntent {
+	if err = tx.QueryRow(`SELECT kind,payload FROM exploration_nodes WHERE id=$1 AND exploration_id=$2 AND state='running' FOR UPDATE`, intentID, s.expID).Scan(&kind, &workPayload); err != nil || kind != KindIntent {
 		return 0, fmt.Errorf("当前工作不存在、已停止或不属于本任务")
+	}
+	var work struct {
+		Inputs []WorkInput `json:"inputs"`
+	}
+	if err = json.Unmarshal(workPayload, &work); err != nil {
+		return 0, err
+	}
+	// The producer cannot omit or replace the planned provenance. Changed or
+	// inaccessible node inputs require replanning; blockers may still be saved.
+	delete(payload, "inputs")
+	if len(work.Inputs) > 0 {
+		if payload["record_type"] == "result" && payload["result_type"] != "blocker" {
+			if _, err = s.pinWorkInputs(tx, work.Inputs); err != nil {
+				return 0, fmt.Errorf("输入已变化或不可访问，请记录 blocker 并重新规划：%w", err)
+			}
+		}
+		payload["inputs"] = work.Inputs
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

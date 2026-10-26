@@ -181,3 +181,64 @@ func TestGeneralSpawnSchemaPreservesUserSettings(t *testing.T) {
 		t.Fatalf("migration overwrote customization: %+v", row)
 	}
 }
+
+func TestGeneralReuseSchemaPreservesUserSettings(t *testing.T) {
+	dsn, _, err := db.DSN()
+	if err != nil {
+		t.Skip(err)
+	}
+	pg, err := db.Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pg.Close() })
+	for key, property := range map[string]string{"add_work": "inputs", "prepare_worktree": "base_commit"} {
+		t.Run(key, func(t *testing.T) {
+			old, err := pg.GetTool(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if old == nil {
+				if err = pg.SeedTool(key, "fixture", json.RawMessage(`{"type":"object","properties":{}}`), json.RawMessage(`[]`)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Cleanup(func() {
+				if old == nil {
+					_, _ = pg.Exec(`DELETE FROM tools WHERE key=$1`, key)
+					return
+				}
+				agents, _ := json.Marshal(old.Agents)
+				_, _ = pg.Exec(`UPDATE tools SET description=$2,schema=$3,agents=$4,enabled=$5 WHERE key=$1`, key, old.Description, string(old.Schema), string(agents), old.Enabled)
+			})
+			_, err = pg.Exec(`UPDATE tools SET description='reuse custom',enabled=false,agents='[]',schema='{"type":"object","properties":{"summary":{"type":"string","default":"custom summary"}}}' WHERE key=$1`, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := &Server{m: &Manager{pg: pg}}
+			s.refreshGeneralSpawnSchema()
+			s.refreshGeneralSpawnSchema()
+			row, err := pg.GetTool(key)
+			if err != nil || row == nil {
+				t.Fatal(err)
+			}
+			var schema struct{ Properties map[string]any }
+			if err := json.Unmarshal(row.Schema, &schema); err != nil || schema.Properties[property] == nil {
+				t.Fatalf("missing additive %s: %s", property, row.Schema)
+			}
+			if row.Enabled || row.Description != "reuse custom" || len(row.Agents) != 0 || !strings.Contains(string(row.Schema), "custom summary") {
+				t.Fatalf("lost user settings: %+v", row)
+			}
+			// A user's explicit property definition wins over a later restart.
+			custom := `{"type":"string","default":"custom reuse","description":"keep me"}`
+			if _, err = pg.Exec(`UPDATE tools SET schema=jsonb_set(schema,ARRAY['properties',$2],$3::jsonb) WHERE key=$1`, key, property, custom); err != nil {
+				t.Fatal(err)
+			}
+			s.refreshGeneralSpawnSchema()
+			row, err = pg.GetTool(key)
+			if err != nil || !strings.Contains(string(row.Schema), "custom reuse") {
+				t.Fatalf("overwrote existing input property: %+v %v", row, err)
+			}
+		})
+	}
+}

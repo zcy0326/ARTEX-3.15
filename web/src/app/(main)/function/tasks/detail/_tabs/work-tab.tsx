@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import type { Task, WorkRecord } from "@/lib/types";
+import { WorkInputs } from "./work-inputs";
 
 const roles: Record<string, string> = { analyst: "分析", implementer: "实现", verifier: "验证", integrator: "集成" };
 const states: Record<string, string> = {
@@ -37,6 +38,7 @@ export function GeneralOverview({ task }: { task: Task }) {
       ))}
       <p className="text-muted-foreground text-sm">
         在“工作与分工”查看职责和前置，在“成果与验证”查看交付物、版本与独立检查。可通过主控会话补充目标和约束。
+        可从已有项目、PoC或逆向成果开始，按需求复现、适配、扩展和集成。
       </p>
     </div>
   );
@@ -100,6 +102,7 @@ export function WorkTab({ taskId }: { taskId: string }) {
             </div>
             <p className="whitespace-pre-wrap text-sm font-medium">{item.payload.summary}</p>
             {item.payload.acceptance && <p className="whitespace-pre-wrap text-sm">验收：{item.payload.acceptance}</p>}
+            <WorkInputs inputs={item.payload.inputs} />
             {!!item.payload.depends_on?.length && (
               <p className="text-muted-foreground text-xs">
                 等待工作结束：{item.payload.depends_on.map((id) => `#${id}`).join("、")}

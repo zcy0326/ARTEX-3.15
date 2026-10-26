@@ -19,15 +19,23 @@ func idArray(description string) map[string]any {
 }
 
 func (t *ToolSet) addWork() actool.CoreTool {
-	return t.writeExpTool("add_work", "创建具有职责、验收和正式前置的通用工作。depends_on 等待已有工作正常结束；verified_result_ids 等待成果的最新独立验证通过。先等成果真实产生再引用其 ID。",
+	return t.writeExpTool("add_work", "创建研究、复现、改造或验证工作。inputs 记录复用的仓库、PoC、逆向结论、成果或漏洞及用途，不表示验证通过。depends_on 等待已有工作正常结束；verified_result_ids 等待本任务成果的最新独立验证通过。先等成果真实产生再引用其 ID。",
 		obj(map[string]any{"summary": str("具体工作与输入"), "role": stringEnum("执行职责", "analyst", "implementer", "verifier", "integrator"),
 			"acceptance": str("怎样验收这项工作"), "depends_on": idArray("必须正常结束的本任务工作 ID；不代表验收通过"),
-			"verified_result_ids": idArray("必须取得独立 passed 验证的本任务成果 ID")}, "summary", "role", "acceptance"),
+			"verified_result_ids": idArray("必须取得独立 passed 验证的本任务成果 ID"),
+			"inputs": map[string]any{"type": "array", "maxItems": 16, "description": "已有材料及本次复用用途；外部材料提供位置与提交/SHA256等版本，本任务或直接关联任务的事实/漏洞提供探索节点 ID。节点版本由服务端固定，跨任务引用只读。",
+				"items": obj(map[string]any{
+					"kind":    stringEnum("输入类型", "repository", "poc", "reverse_analysis", "result", "finding", "reference"),
+					"purpose": str("如何用它满足当前需求；需要验证的假设与适用条件"),
+					"locator": str("外部仓库/文件路径或资料位置；不自动下载或运行"), "revision": str("外部输入的提交、SHA256或可核对版本，须实际检查"),
+					"node_id": idp("本任务或直接关联任务的事实/漏洞探索节点 ID，不是 finding_id"),
+				}, "kind", "purpose")}}, "summary", "role", "acceptance"),
 		func(_ context.Context, raw json.RawMessage) (actool.Result, error) {
 			var input struct {
 				Summary, Role, Acceptance string
-				DependsOn                 []int64 `json:"depends_on"`
-				Results                   []int64 `json:"verified_result_ids"`
+				DependsOn                 []int64        `json:"depends_on"`
+				Results                   []int64        `json:"verified_result_ids"`
+				Inputs                    []db.WorkInput `json:"inputs"`
 			}
 			if err := json.Unmarshal(raw, &input); err != nil {
 				return actool.Errorf("无效 JSON"), nil
@@ -35,7 +43,7 @@ func (t *ToolSet) addWork() actool.CoreTool {
 			if len(input.Summary) > 4000 || len(input.Acceptance) > 16000 {
 				return actool.Errorf("工作说明过长"), nil
 			}
-			id, err := t.ts.AddWork(input.Summary, input.Role, input.Acceptance, t.worker, input.DependsOn, input.Results)
+			id, err := t.ts.AddWorkWithInputs(input.Summary, input.Role, input.Acceptance, t.worker, input.DependsOn, input.Results, input.Inputs)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
@@ -81,7 +89,7 @@ func (t *ToolSet) listResults() actool.CoreTool {
 }
 
 func (t *ToolSet) recordResult() actool.CoreTool {
-	return t.writeExpTool("record_result", "登记通用成果：分析、实现、实验或报告。files 会保存本任务文件的独立内容快照和 SHA256；后续修改原文件不会改变该版本。登记不等于验证通过。",
+	return t.writeExpTool("record_result", "登记通用成果：分析、实现、实验或报告。自动继承工作 inputs 的来源与版本；节点输入变化时须记录 blocker 并重新规划。files 保存文件独立快照和 SHA256；登记不等于验证通过。",
 		obj(map[string]any{"summary": str("成果摘要"), "result_type": stringEnum("成果种类", "analysis", "implementation", "experiment", "report", "blocker"),
 			"detail": str("结论、适用版本、位置、条件和未知项"), "evidence": str("实际命令/输出或可核对的依据"),
 			"confidence": stringEnum("观察或推断", "observed", "inferred"),
@@ -191,17 +199,20 @@ func (t *ToolSet) workFactNotice(id int64, summary string) {
 }
 
 func (t *ToolSet) prepareWorktree() actool.CoreTool {
-	return t.writeExpTool("prepare_worktree", "为本工作从本地 Git 仓库 HEAD 创建独立 worktree/分支，返回精确基线。不会清理或重置原仓库；已存在时拒绝覆盖。后续所有修改/检查在返回路径执行。",
-		obj(map[string]any{"repo": str("已存在的本地仓库绝对路径")}, "repo"),
+	return t.writeExpTool("prepare_worktree", "为本工作从本地 Git 仓库的指定提交创建独立 worktree/分支，缺省 HEAD，返回精确基线。不会清理或重置原仓库；已存在时拒绝覆盖。后续所有修改/检查在返回路径执行。",
+		obj(map[string]any{"repo": str("已存在的本地仓库绝对路径"), "base_commit": str("已核对的基线提交或本地 ref；省略使用 HEAD；可从已有项目/前置实现版本继续修改")}, "repo"),
 		func(ctx context.Context, raw json.RawMessage) (actool.Result, error) {
-			var input struct{ Repo string }
+			var input struct {
+				Repo       string
+				BaseCommit string `json:"base_commit"`
+			}
 			if err := json.Unmarshal(raw, &input); err != nil {
 				return actool.Errorf("无效 JSON"), nil
 			}
 			if t.workspaceRoot == "" || t.runIntentID <= 0 {
 				return actool.Errorf("仅通用任务的执行工作可创建工作区"), nil
 			}
-			result, err := workproduct.PrepareWorktree(ctx, input.Repo, t.workspaceRoot, t.runIntentID)
+			result, err := workproduct.PrepareWorktreeAt(ctx, input.Repo, t.workspaceRoot, t.runIntentID, input.BaseCommit)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}

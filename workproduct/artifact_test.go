@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -112,4 +113,28 @@ func TestGeneralWorktreePreservesSourceAndPinsBase(t *testing.T) {
 		t.Fatal("overwrote existing worktree")
 	}
 	git("worktree", "remove", "--force", work.Path)
+	// A later repository HEAD must not replace a requested predecessor baseline.
+	git("add", "main.txt")
+	git("commit", "-qm", "later project change")
+	if err := os.WriteFile(filepath.Join(repo, "main.txt"), []byte("more user edits"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	work, err = PrepareWorktreeAt(t.Context(), repo, root, 18, strings.TrimSpace(base))
+	if err != nil || work.BaseCommit != strings.TrimSpace(base) || !work.SourceDirty {
+		t.Fatalf("explicit base: %+v %v", work, err)
+	}
+	got, _ = os.ReadFile(filepath.Join(work.Path, "main.txt"))
+	if string(got) != "baseline" {
+		t.Fatalf("used later HEAD instead of requested base: %s", got)
+	}
+	got, _ = os.ReadFile(filepath.Join(repo, "main.txt"))
+	if string(got) != "more user edits" {
+		t.Fatal("explicit base lost source edits")
+	}
+	git("worktree", "remove", "--force", work.Path)
+	for _, invalid := range []string{"missing-ref", "--help"} {
+		if _, err := PrepareWorktreeAt(t.Context(), repo, root, 19, invalid); err == nil {
+			t.Fatalf("accepted invalid baseline %q", invalid)
+		}
+	}
 }

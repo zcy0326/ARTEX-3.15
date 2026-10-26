@@ -45,7 +45,7 @@ func TestGeneralPromptAndToolIsolation(t *testing.T) {
 	for _, tool := range set.generalTools("worker") {
 		worker[tool.Name()] = true
 	}
-	if !worker["record_result"] || !worker["record_validation"] || worker["add_work"] || worker["report_finding"] {
+	if !worker["record_result"] || !worker["record_validation"] || !worker["list_findings"] || worker["add_work"] || worker["report_finding"] {
 		t.Fatalf("bad general worker tools: %v", worker)
 	}
 	for _, tool := range set.WorkerTools() {
@@ -108,7 +108,8 @@ func TestGeneralActualWorkerPlannerWorkProducts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = d.DeleteTask(task.ID) })
 	store := d.Exploration(task.ExplorationID)
-	id, err := store.AddWork("analyze fixture", "analyst", "a saved report", "planner", nil, nil)
+	id, err := store.AddWorkWithInputs("analyze fixture", "analyst", "a saved report", "planner", nil, nil,
+		[]db.WorkInput{{Kind: "poc", Locator: "/fixture/poc.txt", Revision: "fixture-version", Purpose: "check assumptions before adapting the existing tool"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +138,10 @@ func TestGeneralActualWorkerPlannerWorkProducts(t *testing.T) {
 	records, _, err := store.WorkRecords(0, 30)
 	if err != nil || len(records) != 1 {
 		t.Fatalf("records: %v %v", records, err)
+	}
+	var produced struct{ Inputs []db.WorkInput }
+	if err = json.Unmarshal(records[0].Payload, &produced); err != nil || len(produced.Inputs) != 1 || produced.Inputs[0].Kind != "poc" {
+		t.Fatalf("real worker lost reuse provenance: %+v %v", produced, err)
 	}
 	goal, err := store.AddGoal(map[string]any{"text": "deliver analysis"}, "system")
 	if err != nil {

@@ -23,7 +23,7 @@ func compactIntents(ns []*db.Node, parentsOf, yieldsOf map[int64][]int64) []map[
 		var p map[string]any
 		_ = json.Unmarshal(n.Payload, &p)
 		m := map[string]any{"id": n.ID, "summary": p["summary"], "state": n.State}
-		for _, key := range []string{"work_role", "acceptance", "depends_on", "verified_result_ids"} {
+		for _, key := range []string{"work_role", "acceptance", "depends_on", "verified_result_ids", "inputs"} {
 			if value, ok := p[key]; ok {
 				m[key] = value
 			}

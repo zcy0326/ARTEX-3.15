@@ -1630,6 +1630,15 @@ export interface WorkArtifact {
   size: number;
   snapshot: string;
 }
+export interface WorkInput {
+  kind: "repository" | "poc" | "reverse_analysis" | "result" | "finding" | "reference";
+  purpose: string;
+  locator?: string;
+  revision?: string;
+  node_id?: number;
+  node_digest?: string;
+  source_task_id?: number;
+}
 export interface WorkRecord {
   id: number;
   kind: string;
@@ -1653,6 +1662,7 @@ export interface WorkRecord {
     acceptance?: string;
     depends_on?: number[];
     verified_result_ids?: number[];
+    inputs?: WorkInput[];
   };
 }
 export interface WorkRecordsPage {

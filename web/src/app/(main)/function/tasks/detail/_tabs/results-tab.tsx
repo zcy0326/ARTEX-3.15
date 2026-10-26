@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import type { WorkRecord } from "@/lib/types";
+import { WorkInputs } from "./work-inputs";
 
-const types: Record<string, string> = { analysis: "分析", implementation: "实现", experiment: "实验", report: "报告" };
+const types: Record<string, string> = { analysis: "分析", implementation: "实现与改造", experiment: "实验", report: "报告", blocker: "阻塞" };
 const verdicts: Record<string, string> = { passed: "通过", failed: "未通过", inconclusive: "无法确认" };
 
 export function ResultsTab({ taskId }: { taskId: string }) {
@@ -58,7 +59,7 @@ export function ResultsTab({ taskId }: { taskId: string }) {
         <div>
           <h2 className="font-semibold">成果与验证</h2>
           <p className="text-muted-foreground mt-1 text-sm">
-            分析、实现、实验和报告均可交付。文件保留独立快照；验证针对精确版本，成果登记与验证通过分别展示。
+            分析、改造、实验和报告均可交付。复用材料随成果保留来源，文件保留独立快照；验证针对精确版本。
           </p>
         </div>
         <Button
@@ -112,6 +113,7 @@ export function ResultsTab({ taskId }: { taskId: string }) {
                 </span>
               </div>
               <p className="text-sm font-medium">{p.summary}</p>
+              <WorkInputs inputs={p.inputs} />
               {validation && (
                 <p className="text-muted-foreground text-xs">
                   对应成果 #{p.result_id} · <code className="break-all">{p.result_digest}</code>

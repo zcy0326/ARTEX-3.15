@@ -3239,7 +3239,7 @@ function CreateTaskSheet({
               <Label htmlFor="name">名称（可选）</Label>
               <Input
                 id="name"
-                placeholder="给任务起个便于识别的名字，例如：Acme 官网渗透"
+                placeholder={workflow === "general" ? "例如：基于现有项目开发协议适配器" : "给任务起个便于识别的名字，例如：Acme 官网渗透"}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -3267,7 +3267,7 @@ function CreateTaskSheet({
                 <option value="general">通用研究与开发</option>
               </select>
               <p className="text-muted-foreground text-xs">
-                通用任务支持分析、逆向、实现、实验和报告，按工作分配职责并记录版本与验证。
+                通用任务支持基于已有项目、PoC或逆向结论复现、改造、扩展和交付，也支持从零开发。
               </p>
               <Label htmlFor="description">描述</Label>
               <Textarea
@@ -3275,7 +3275,7 @@ function CreateTaskSheet({
                 className="min-h-32"
                 placeholder={
                   workflow === "general"
-                    ? "材料、仓库或样本路径、环境、背景和约束"
+                    ? "已有仓库及提交、PoC或逆向成果路径、需要保留的行为、预期改动、环境与约束；可关联前序任务复用材料"
                     : "测试对象与背景，例如：测试 example.com 这个站点"
                 }
                 value={description}
