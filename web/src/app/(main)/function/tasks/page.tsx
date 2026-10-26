@@ -3158,12 +3158,12 @@ function CreateTaskSheet({
         goal: goal.trim(),
         llmProfileIds: llmProfileIDs.map(Number),
         sourceTaskIds: sourceTaskIDs,
-        companyIds: companyIDs,
+        companyIds: workflow === "security" ? companyIDs : [],
         timeoutSeconds: timeoutSec,
         seedFirstIntent,
         planHeartbeatSeconds: heartbeatSec,
-        coverageEnabled,
-        interceptRules: interceptRules
+        coverageEnabled: workflow === "security" && coverageEnabled,
+        interceptRules: (workflow === "security" ? interceptRules : [])
           .map((r) => ({ ...r, pattern: r.pattern.trim() }))
           .filter((r) => r.pattern !== ""),
       });
@@ -3341,29 +3341,35 @@ function CreateTaskSheet({
               />
               <FieldDescription>
                 最多关联 {MAX_SOURCE_TASKS}{" "}
-                个任务。实时只读继承所选任务的持久化黑板、资产范围及相关流量；新任务写入独立黑板。
+                {workflow === "general"
+                  ? "个任务。复用所选任务的事实、成果和证据，新任务保持独立记录。"
+                  : "个任务。实时只读继承所选任务的持久化黑板、资产范围及相关流量；新任务写入独立黑板。"}
               </FieldDescription>
             </Field>
-            <Field>
-              <FieldLabel htmlFor="task-companies">关联企业资产范围</FieldLabel>
-              <CompanyPicker
-                companies={companies}
-                value={companyIDs}
-                onValueChange={setCompanyIDs}
-                portalContainer={sheetContentRef}
-              />
-              <FieldDescription>
-                创建任务时会将所选企业当前已有资产加入“测试资产”，并将域名、IP、CIDR、ICP 和企业关键词提供给 Agent
-                作为范围上下文；不会自动生成意图或强制改变执行目标。
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="task-intercept-rules">任务级资产拦截 / 允许规则（可选）</FieldLabel>
-              <AssetInterceptRulesEditor value={interceptRules} onChange={setInterceptRules} />
-              <FieldDescription>
-                仅对本任务生效，不写入全局规则。判定顺序：先按「拦截」规则（含全局）匹配，命中即禁止测试；未命中且本任务配置了「允许」规则时，须命中某条允许规则才放行，否则同样不允许测试；未配置任何允许规则则不启用白名单。
-              </FieldDescription>
-            </Field>
+            {workflow === "security" && (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="task-companies">关联企业资产范围</FieldLabel>
+                  <CompanyPicker
+                    companies={companies}
+                    value={companyIDs}
+                    onValueChange={setCompanyIDs}
+                    portalContainer={sheetContentRef}
+                  />
+                  <FieldDescription>
+                    创建任务时会将所选企业当前已有资产加入“测试资产”，并将域名、IP、CIDR、ICP 和企业关键词提供给 Agent
+                    作为范围上下文；不会自动生成意图或强制改变执行目标。
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="task-intercept-rules">任务级资产拦截 / 允许规则（可选）</FieldLabel>
+                  <AssetInterceptRulesEditor value={interceptRules} onChange={setInterceptRules} />
+                  <FieldDescription>
+                    仅对本任务生效，不写入全局规则。判定顺序：先按「拦截」规则（含全局）匹配，命中即禁止测试；未命中且本任务配置了「允许」规则时，须命中某条允许规则才放行，否则同样不允许测试；未配置任何允许规则则不启用白名单。
+                  </FieldDescription>
+                </Field>
+              </>
+            )}
             <Field>
               <FieldLabel htmlFor="llm-profiles">LLM 配置链</FieldLabel>
               <TaskLLMProfileChain
@@ -3429,20 +3435,22 @@ function CreateTaskSheet({
                     接手判定/补充。CTF 等常一个 work 直接解决的场景推荐开启；关闭则走标准的先规划再执行。
                   </p>
                 </div>
-                <div className="grid gap-2">
-                  <label htmlFor="coverage-enabled" className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      id="coverage-enabled"
-                      checked={coverageEnabled}
-                      onCheckedChange={(v) => setCoverageEnabled(!!v)}
-                    />
-                    资产覆盖度功能
-                  </label>
-                  <p className="text-muted-foreground text-xs">
-                    默认开启：计算并展示测试覆盖度、态势图显示测试进度、自动累积测试范围。关闭后不再计算/展示覆盖度，
-                    态势图仅展示资产不显示进度，agent 也不再获得范围类工具。关闭不影响「关联企业资产范围」。
-                  </p>
-                </div>
+                {workflow === "security" && (
+                  <div className="grid gap-2">
+                    <label htmlFor="coverage-enabled" className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        id="coverage-enabled"
+                        checked={coverageEnabled}
+                        onCheckedChange={(v) => setCoverageEnabled(!!v)}
+                      />
+                      资产覆盖度功能
+                    </label>
+                    <p className="text-muted-foreground text-xs">
+                      默认开启：计算并展示测试覆盖度、态势图显示测试进度、自动累积测试范围。关闭后不再计算/展示覆盖度，
+                      态势图仅展示资产不显示进度，agent 也不再获得范围类工具。关闭不影响「关联企业资产范围」。
+                    </p>
+                  </div>
+                )}
               </CollapsibleContent>
             </Collapsible>
           </div>

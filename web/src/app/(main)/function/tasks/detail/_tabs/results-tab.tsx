@@ -19,9 +19,11 @@ export function ResultsTab({ taskId }: { taskId: string }) {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
   const request = React.useRef(0);
+  const browsingHistory = React.useRef(false);
 
   const load = React.useCallback(
     async (before?: number) => {
+      if (before) browsingHistory.current = true;
       const sequence = ++request.current;
       setLoading(true);
       try {
@@ -41,7 +43,11 @@ export function ResultsTab({ taskId }: { taskId: string }) {
 
   React.useEffect(() => {
     void load();
+    const timer = setInterval(() => {
+      if (!browsingHistory.current) void load();
+    }, 10000);
     return () => {
+      clearInterval(timer);
       request.current++;
     };
   }, [load]);
@@ -55,7 +61,15 @@ export function ResultsTab({ taskId }: { taskId: string }) {
             分析、实现、实验和报告均可交付。文件保留独立快照；验证针对精确版本，成果登记与验证通过分别展示。
           </p>
         </div>
-        <Button variant="outline" size="sm" disabled={loading} onClick={() => void load()}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={loading}
+          onClick={() => {
+            browsingHistory.current = false;
+            void load();
+          }}
+        >
           <RefreshCwIcon />
           刷新
         </Button>
@@ -87,7 +101,11 @@ export function ResultsTab({ taskId }: { taskId: string }) {
                     {verdicts[p.verdict ?? ""] ?? p.verdict}
                   </Badge>
                 )}
-                {!validation && <Badge variant="secondary">{p.confidence === "inferred" ? "推断" : "已观察"}</Badge>}
+                {!validation && (
+                  <Badge variant="secondary">
+                    {p.confidence === "observed" ? "已观察" : p.confidence === "inferred" ? "推断" : "未标注"}
+                  </Badge>
+                )}
                 <span className="text-muted-foreground text-xs">
                   工作 #{p.producer_intent_id ?? p.validator_intent_id} ·{" "}
                   {new Date(record.created_at).toLocaleString("zh-CN")}

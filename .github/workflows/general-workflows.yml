@@ -46,6 +46,8 @@ jobs:
         run: go test ./... -run TestNonexistent -count=1
       - name: General workflows and collaboration regressions with PostgreSQL
         run: go test -race -p 1 ./workproduct ./db ./agent ./server -run 'TestGeneral|TestTeam|TestFactNotice' -count=1 -v
+      - name: Task cancellation compatibility
+        run: go test -race ./server -run 'TestPauseCancels|TestKillWorkCancels|TestControlWorkCarries' -count=1
       - name: Static analysis
         run: go vet ./...
 

@@ -97,7 +97,7 @@ func TestGeneralWorktreePreservesSourceAndPinsBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if work.BaseCommit+"\n" != base {
+	if !work.SourceDirty || work.BaseCommit+"\n" != base {
 		t.Fatalf("wrong base: %+v", work)
 	}
 	got, _ := os.ReadFile(filepath.Join(work.Path, "main.txt"))

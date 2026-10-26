@@ -10,9 +10,10 @@ import (
 )
 
 type Worktree struct {
-	Path       string `json:"path"`
-	Branch     string `json:"branch"`
-	BaseCommit string `json:"base_commit"`
+	Path        string `json:"path"`
+	Branch      string `json:"branch"`
+	BaseCommit  string `json:"base_commit"`
+	SourceDirty bool   `json:"source_dirty"`
 }
 
 // PrepareWorktree creates a branch per intent; it never resets/cleans the source
@@ -36,7 +37,11 @@ func PrepareWorktree(ctx context.Context, repo, taskRoot string, intentID int64)
 	if err != nil {
 		return result, err
 	}
-	result = Worktree{filepath.Join(taskRoot, fmt.Sprintf("worktree-%d", intentID)), fmt.Sprintf("artex/task-%s/work-%d", filepath.Base(taskRoot), intentID), base}
+	status, err := git("status", "--porcelain")
+	if err != nil {
+		return result, err
+	}
+	result = Worktree{Path: filepath.Join(taskRoot, fmt.Sprintf("worktree-%d", intentID)), Branch: fmt.Sprintf("artex/task-%s/work-%d", filepath.Base(taskRoot), intentID), BaseCommit: base, SourceDirty: status != ""}
 	_, err = git("worktree", "add", "-b", result.Branch, "--", result.Path, base)
 	return result, err
 }
