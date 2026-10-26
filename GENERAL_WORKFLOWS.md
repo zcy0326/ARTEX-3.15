@@ -89,6 +89,16 @@
 
 本 PR 未内置反编译器、远端设备 runner、独立项目对象库或跨进程资源租约。当前可通过已有 MCP/Skill 接入专业工具；后续架构路线见 [GENERAL_PLATFORM_DESIGN.md](GENERAL_PLATFORM_DESIGN.md)。
 
+## 从 PR #1 已部署版本升级
+
+本 PR 基于 PR #1 合并后的 `a3755846ca8bcf01687e1bb7dc6ed4a86d2f29e1`，支持沿用原 PostgreSQL 数据库、数据目录和配置升级。新增的 `tasks` / `task_templates` 字段使用 `ADD COLUMN IF NOT EXISTS`；旧记录自动使用 `workflow=security`、空验收条件。原有任务、意图、事实、漏洞、会话和模板继续使用原 ID，旧安全任务继续使用原工作流。
+
+启动时由现有 `db.Open` 路径自动应用迁移：扩展关系类型、增加可选字段与索引。原有文件和流量存储格式保持不变；新增成果快照写入原数据目录下的任务目录。模型配置、自定义提示词及工具启用/绑定继续保留；新增工具参数采用增量补充，已有参数配置优先。
+
+升级时先暂停活动任务并正常停止旧进程，备份 PostgreSQL、`data/`、`skills/` 和实际使用的配置。换入包含本 PR 的程序或自行构建的镜像，沿用原数据库连接、数据路径与卷挂载，再正常启动。Docker 部署保留原 `pgdata` 卷与同一 Compose 项目名；不要用 `docker compose down -v` 更新，因为该命令会删除数据卷。默认 compose 指向上游镜像，拉取它不代表已经包含本 PR。
+
+升级回归使用 PR #1 的真实 `schema.sql` 建立隔离测试库结构，写入旧版任务、漏洞与证据、会话、模板、模型和用户自定义配置，再调用新版 `db.Open` 连续启动两次。检查原记录内容与 ID、旧工作可调度性及新通用工作是否可用；现有归档回归另检查缺少新字段的旧归档恢复。
+
 ## 检查
 
 ```sh
@@ -98,3 +108,5 @@ go test -race -p 1 ./workproduct ./db ./agent ./server -run 'TestGeneral|TestTea
 ```
 
 数据库测试需要 `ARTEX_PG_DSN`。GitHub Actions 的 General workflows 使用 PostgreSQL 16，并运行前端类型检查与生产构建。模型驱动的真实任务表现仍需在相同模型、输入和预算下评估；单元/集成检查不代表通用逆向成功率。
+
+手动执行升级回归时，将 PR #1 的 `db/schema.sql` 原文保存为文件，通过 `ARTEX_UPGRADE_SCHEMA_PATH` 指向它；测试校验其 SHA256，并只在随机创建的隔离 schema 内读写。CI 会自动获取这个历史文件。

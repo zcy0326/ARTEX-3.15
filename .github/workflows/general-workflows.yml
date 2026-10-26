@@ -42,6 +42,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Load deployed PR 1 schema for upgrade regression
+        env:
+          DEPLOYED_REVISION: a3755846ca8bcf01687e1bb7dc6ed4a86d2f29e1
+        run: |
+          git fetch --no-tags --depth=1 origin "$DEPLOYED_REVISION"
+          git show "$DEPLOYED_REVISION:db/schema.sql" > "$RUNNER_TEMP/artex-pr1-schema.sql"
+          echo "ARTEX_UPGRADE_SCHEMA_PATH=$RUNNER_TEMP/artex-pr1-schema.sql" >> "$GITHUB_ENV"
       - name: Compile all packages
         run: go test ./... -run TestNonexistent -count=1
       - name: General workflows and collaboration regressions with PostgreSQL
