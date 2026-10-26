@@ -4,7 +4,11 @@
 export type TaskStatus = "created" | "queued" | "running" | "paused" | "done" | "failed" | "timeout";
 export type EngineMode = "exploring" | "paused" | "stalled" | "idle";
 
+export type TaskWorkflow = "security" | "general";
+
 export interface Task {
+  workflow?: TaskWorkflow;
+  acceptance?: string;
   id: string;
   name?: string; // 可选任务名称;空/缺省=未命名,展示时回退到描述
   category_id?: number;
@@ -50,6 +54,8 @@ export interface TaskCategory {
 }
 
 export interface TaskTemplate {
+  workflow?: TaskWorkflow;
+  acceptance?: string;
   id: number;
   name: string;
   description: string;
@@ -409,7 +415,14 @@ export type GoalState = "open" | "met" | "abandoned";
 export type IntentState = "open" | "running" | "paused" | "done" | "blocked" | "exhausted" | "stopped";
 export type FindingState = "confirmed" | "dismissed";
 export type HintState = "active" | "consumed";
-export type ExploreRel = "spawns" | "derived_from" | "yields" | "proves" | "covers";
+export type ExploreRel =
+  | "spawns"
+  | "derived_from"
+  | "yields"
+  | "proves"
+  | "covers"
+  | "requires"
+  | "requires_validation";
 
 export interface TaskNode {
   id: string;
@@ -1609,4 +1622,51 @@ export interface InterceptExecution {
   session: string;
   seq: number;
   items: Activity[];
+}
+
+export interface WorkArtifact {
+  name: string;
+  sha256: string;
+  size: number;
+  snapshot: string;
+}
+export interface WorkInput {
+  kind: "repository" | "poc" | "reverse_analysis" | "result" | "finding" | "reference";
+  purpose: string;
+  locator?: string;
+  revision?: string;
+  node_id?: number;
+  node_digest?: string;
+  source_task_id?: number;
+}
+export interface WorkRecord {
+  id: number;
+  kind: string;
+  state: string;
+  created_at: string;
+  payload: {
+    summary: string;
+    detail?: string;
+    evidence?: string;
+    record_type?: "result" | "validation";
+    result_type?: string;
+    confidence?: string;
+    digest?: string;
+    verdict?: "passed" | "failed" | "inconclusive";
+    result_id?: number;
+    result_digest?: string;
+    producer_intent_id?: number;
+    validator_intent_id?: number;
+    files?: WorkArtifact[];
+    work_role?: string;
+    acceptance?: string;
+    depends_on?: number[];
+    verified_result_ids?: number[];
+    inputs?: WorkInput[];
+  };
+}
+export interface WorkRecordsPage {
+  records: WorkRecord[];
+  has_more: boolean;
+  next_before?: number;
 }

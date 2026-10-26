@@ -218,6 +218,12 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 ## 配置
 
+### 通用研究与开发
+
+新建任务可选择“通用研究与开发”，用于源码/程序分析、逆向研究、代码修改、工具开发、实验和报告。规划者按工作分配分析、实现、验证或集成职责，使用正式前置、文件快照和对应版本的独立验证完成交付。任务模板也会保存任务类型及验收条件。
+
+已有任务和旧 API 调用继续使用安全测试模式。用法、工具和实现边界见 [GENERAL_WORKFLOWS.md](GENERAL_WORKFLOWS.md)。
+
 **数据库**（`config.json`，或用环境变量 `ARTEX_PG_DSN` 覆盖）：
 
 ```json

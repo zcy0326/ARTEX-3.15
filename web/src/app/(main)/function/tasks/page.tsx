@@ -951,7 +951,7 @@ export default function TasksPage() {
                     />
                     <TableHead className="text-center">目标进度</TableHead>
                     <TableHead className="text-center" title="严重 / 高 / 中 / 低">
-                      漏洞 <span className="text-muted-foreground font-normal">严/高/中/低</span>
+                      成果 / 漏洞 <span className="text-muted-foreground font-normal">严/高/中/低</span>
                     </TableHead>
                     <TableHead className="text-center">运行中 Worker</TableHead>
                     <SortableTaskHead
@@ -1192,6 +1192,7 @@ const TaskRow = React.memo(function TaskRow({
       <TableCell className="font-medium">
         <div className="flex max-w-xs items-center gap-2">
           <TaskNameEditor task={task} onRename={onRename} />
+          {task.workflow === "general" && <Badge variant="outline">通用</Badge>}
           {task.active && <StarIcon className="size-4 shrink-0 fill-amber-400 text-amber-400" />}
           {taskIsPinned(task) && <PinIcon className="text-primary size-4 shrink-0" aria-label="已置顶" />}
         </div>
@@ -1220,12 +1221,16 @@ const TaskRow = React.memo(function TaskRow({
       </TableCell>
       <TableCell className="text-center text-xs tabular-nums">
         {(() => {
+          if (task.workflow === "general")
+            return (
+              <Link className="text-primary hover:underline" href={`/function/tasks/detail?id=${task.id}`}>
+                查看成果
+              </Link>
+            );
           const f = task.findings;
           const total = f ? f.critical + f.high + f.medium + f.low : 0;
           if (!f || total === 0) return <span className="text-muted-foreground">0</span>;
-          const seg = (n: number, cls: string) => (
-            <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>
-          );
+          const seg = (n: number, cls: string) => <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>;
           return (
             <span className="font-medium whitespace-nowrap" title="严重 / 高 / 中 / 低">
               {seg(f.critical, "text-rose-600 dark:text-rose-400")}
@@ -3085,6 +3090,8 @@ function CreateTaskSheet({
   const [creating, setCreating] = React.useState(false);
   const [timeoutMin, setTimeoutMin] = React.useState(""); // 任务级超时(分钟);空/0 = 不限时
   const [heartbeatMin, setHeartbeatMin] = React.useState("10"); // planner 心跳(分钟);默认10,下限10(与后端一致)
+  const [workflow, setWorkflow] = React.useState<"security" | "general">("security");
+  const [acceptance, setAcceptance] = React.useState("");
   const [seedFirstIntent, setSeedFirstIntent] = React.useState(false); // 创建时下发种子意图,worker 免等首轮 planner 直接开跑;默认关闭,走标准先规划再执行
   const [coverageEnabled, setCoverageEnabled] = React.useState(true); // 资产覆盖度功能;默认开。关闭=不计算/展示覆盖度、不累积范围、隐藏范围类工具(company 关联不受影响)
   const [interceptRules, setInterceptRules] = React.useState<AssetInterceptRuleInput[]>([]); // 任务级资产拦截规则(仅本任务生效,不进全局表)
@@ -3144,17 +3151,19 @@ function CreateTaskSheet({
       const heartbeatSec = Math.max(10, Math.floor(Number(heartbeatMin) || 10)) * 60; // 下限 10min，与后端归一一致
       await api.createTask({
         name: name.trim(),
+        workflow,
+        acceptance: acceptance.trim(),
         categoryId: categoryID,
         description: description.trim(),
         goal: goal.trim(),
         llmProfileIds: llmProfileIDs.map(Number),
         sourceTaskIds: sourceTaskIDs,
-        companyIds: companyIDs,
+        companyIds: workflow === "security" ? companyIDs : [],
         timeoutSeconds: timeoutSec,
         seedFirstIntent,
         planHeartbeatSeconds: heartbeatSec,
-        coverageEnabled,
-        interceptRules: interceptRules
+        coverageEnabled: workflow === "security" && coverageEnabled,
+        interceptRules: (workflow === "security" ? interceptRules : [])
           .map((r) => ({ ...r, pattern: r.pattern.trim() }))
           .filter((r) => r.pattern !== ""),
       });
@@ -3164,6 +3173,8 @@ function CreateTaskSheet({
       setDescription("");
       setGoal("");
       setSelectedTemplateID(null);
+      setWorkflow("security");
+      setAcceptance("");
       setSourceTaskIDs([]);
       setCompanyIDs([]);
       setLLMProfileIDs([]);
@@ -3199,13 +3210,15 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>新建任务</SheetTitle>
-          <SheetDescription>填写测试对象与目标，高级参数可按需展开。</SheetDescription>
+          <SheetDescription>填写任务材料、目标与验收条件，高级参数可按需展开。</SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
           <div className="grid gap-5">
             <TaskTemplateControls
               description={description}
+              workflow={workflow}
+              acceptance={acceptance}
               goal={goal}
               categoryID={categoryID}
               interceptRules={interceptRules}
@@ -3214,6 +3227,8 @@ function CreateTaskSheet({
               onApply={(template) => {
                 setDescription(template.description);
                 setGoal(template.goal);
+                setWorkflow(template.workflow ?? "security");
+                setAcceptance(template.acceptance ?? "");
                 setCategoryID(template.category_id ?? undefined);
                 setInterceptRules(template.intercept_rules ?? []);
                 setUploadCount(0);
@@ -3224,7 +3239,7 @@ function CreateTaskSheet({
               <Label htmlFor="name">名称（可选）</Label>
               <Input
                 id="name"
-                placeholder="给任务起个便于识别的名字，例如：Acme 官网渗透"
+                placeholder={workflow === "general" ? "例如：基于现有项目开发协议适配器" : "给任务起个便于识别的名字，例如：Acme 官网渗透"}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -3241,11 +3256,28 @@ function CreateTaskSheet({
               <FieldDescription>可选，单个分类；用于任务列表筛选和归档，不影响 Agent 执行。</FieldDescription>
             </Field>
             <div className="grid gap-2">
+              <Label htmlFor="task-workflow">任务类型</Label>
+              <select
+                id="task-workflow"
+                className="bg-background rounded-md border px-3 py-2 text-sm"
+                value={workflow}
+                onChange={(e) => setWorkflow(e.target.value as "security" | "general")}
+              >
+                <option value="security">安全测试</option>
+                <option value="general">通用研究与开发</option>
+              </select>
+              <p className="text-muted-foreground text-xs">
+                通用任务支持基于已有项目、PoC或逆向结论复现、改造、扩展和交付，也支持从零开发。
+              </p>
               <Label htmlFor="description">描述</Label>
               <Textarea
                 id="description"
                 className="min-h-32"
-                placeholder="测试对象与背景，例如：测试 example.com 这个站点"
+                placeholder={
+                  workflow === "general"
+                    ? "已有仓库及提交、PoC或逆向成果路径、需要保留的行为、预期改动、环境与约束；可关联前序任务复用材料"
+                    : "测试对象与背景，例如：测试 example.com 这个站点"
+                }
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -3280,11 +3312,25 @@ function CreateTaskSheet({
               <Textarea
                 id="goal"
                 className="min-h-32"
-                placeholder="要达成什么，例如：拿下后台管理权限、获取服务器权限"
+                placeholder={
+                  workflow === "general"
+                    ? "希望交付什么，例如：还原文件格式并开发经过对照验证的解析器"
+                    : "要达成什么，例如：拿下后台管理权限、获取服务器权限"
+                }
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
               />
             </div>
+            <Field>
+              <FieldLabel htmlFor="acceptance">验收条件（可选）</FieldLabel>
+              <Textarea
+                id="acceptance"
+                value={acceptance}
+                maxLength={16000}
+                onChange={(e) => setAcceptance(e.target.value)}
+                placeholder="怎样证明完成：测试命令、样例、行为要求或交付文件"
+              />
+            </Field>
             <Field>
               <FieldLabel htmlFor="source-tasks">关联任务</FieldLabel>
               <SourceTaskPicker
@@ -3295,29 +3341,35 @@ function CreateTaskSheet({
               />
               <FieldDescription>
                 最多关联 {MAX_SOURCE_TASKS}{" "}
-                个任务。实时只读继承所选任务的持久化黑板、资产范围及相关流量；新任务写入独立黑板。
+                {workflow === "general"
+                  ? "个任务。复用所选任务的事实、成果和证据，新任务保持独立记录。"
+                  : "个任务。实时只读继承所选任务的持久化黑板、资产范围及相关流量；新任务写入独立黑板。"}
               </FieldDescription>
             </Field>
-            <Field>
-              <FieldLabel htmlFor="task-companies">关联企业资产范围</FieldLabel>
-              <CompanyPicker
-                companies={companies}
-                value={companyIDs}
-                onValueChange={setCompanyIDs}
-                portalContainer={sheetContentRef}
-              />
-              <FieldDescription>
-                创建任务时会将所选企业当前已有资产加入“测试资产”，并将域名、IP、CIDR、ICP 和企业关键词提供给 Agent
-                作为范围上下文；不会自动生成意图或强制改变执行目标。
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="task-intercept-rules">任务级资产拦截 / 允许规则（可选）</FieldLabel>
-              <AssetInterceptRulesEditor value={interceptRules} onChange={setInterceptRules} />
-              <FieldDescription>
-                仅对本任务生效，不写入全局规则。判定顺序：先按「拦截」规则（含全局）匹配，命中即禁止测试；未命中且本任务配置了「允许」规则时，须命中某条允许规则才放行，否则同样不允许测试；未配置任何允许规则则不启用白名单。
-              </FieldDescription>
-            </Field>
+            {workflow === "security" && (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="task-companies">关联企业资产范围</FieldLabel>
+                  <CompanyPicker
+                    companies={companies}
+                    value={companyIDs}
+                    onValueChange={setCompanyIDs}
+                    portalContainer={sheetContentRef}
+                  />
+                  <FieldDescription>
+                    创建任务时会将所选企业当前已有资产加入“测试资产”，并将域名、IP、CIDR、ICP 和企业关键词提供给 Agent
+                    作为范围上下文；不会自动生成意图或强制改变执行目标。
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="task-intercept-rules">任务级资产拦截 / 允许规则（可选）</FieldLabel>
+                  <AssetInterceptRulesEditor value={interceptRules} onChange={setInterceptRules} />
+                  <FieldDescription>
+                    仅对本任务生效，不写入全局规则。判定顺序：先按「拦截」规则（含全局）匹配，命中即禁止测试；未命中且本任务配置了「允许」规则时，须命中某条允许规则才放行，否则同样不允许测试；未配置任何允许规则则不启用白名单。
+                  </FieldDescription>
+                </Field>
+              </>
+            )}
             <Field>
               <FieldLabel htmlFor="llm-profiles">LLM 配置链</FieldLabel>
               <TaskLLMProfileChain
@@ -3383,20 +3435,22 @@ function CreateTaskSheet({
                     接手判定/补充。CTF 等常一个 work 直接解决的场景推荐开启；关闭则走标准的先规划再执行。
                   </p>
                 </div>
-                <div className="grid gap-2">
-                  <label htmlFor="coverage-enabled" className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      id="coverage-enabled"
-                      checked={coverageEnabled}
-                      onCheckedChange={(v) => setCoverageEnabled(!!v)}
-                    />
-                    资产覆盖度功能
-                  </label>
-                  <p className="text-muted-foreground text-xs">
-                    默认开启：计算并展示测试覆盖度、态势图显示测试进度、自动累积测试范围。关闭后不再计算/展示覆盖度，
-                    态势图仅展示资产不显示进度，agent 也不再获得范围类工具。关闭不影响「关联企业资产范围」。
-                  </p>
-                </div>
+                {workflow === "security" && (
+                  <div className="grid gap-2">
+                    <label htmlFor="coverage-enabled" className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        id="coverage-enabled"
+                        checked={coverageEnabled}
+                        onCheckedChange={(v) => setCoverageEnabled(!!v)}
+                      />
+                      资产覆盖度功能
+                    </label>
+                    <p className="text-muted-foreground text-xs">
+                      默认开启：计算并展示测试覆盖度、态势图显示测试进度、自动累积测试范围。关闭后不再计算/展示覆盖度，
+                      态势图仅展示资产不显示进度，agent 也不再获得范围类工具。关闭不影响「关联企业资产范围」。
+                    </p>
+                  </div>
+                )}
               </CollapsibleContent>
             </Collapsible>
           </div>

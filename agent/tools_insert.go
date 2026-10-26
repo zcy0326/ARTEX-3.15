@@ -690,6 +690,8 @@ func (t *ToolSet) AllDomainTools() []actool.CoreTool {
 	seen := map[string]bool{}
 	var out []actool.CoreTool
 	all := append(append(t.MainAgentTools(), t.PlannerTools()...), t.WorkerTools()...)
+	all = append(all, t.generalTools("worker")...)
+	all = append(all, t.generalTools("planner")...)
 	for _, tool := range all {
 		if !seen[tool.Name()] {
 			seen[tool.Name()] = true

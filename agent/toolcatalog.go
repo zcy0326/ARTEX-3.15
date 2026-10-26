@@ -34,9 +34,9 @@ type ToolSeed struct {
 func builtinToolsByAgent() map[string][]actool.CoreTool {
 	ts := NewToolSet(nil, "")
 	return map[string][]actool.CoreTool{
-		"mainagent": ts.MainAgentTools(),
-		"planner":   ts.PlannerTools(),
-		"worker":    ts.WorkerTools(),
+		"mainagent": append(ts.MainAgentTools(), ts.newGeneralTools("mainagent")...),
+		"planner":   append(ts.PlannerTools(), ts.newGeneralTools("planner")...),
+		"worker":    append(ts.WorkerTools(), ts.newGeneralTools("worker")...),
 		// goals（目标拆解器）默认绑 set_goals + set_constraints：靠它们把拆出的目标、
 		// 抽出的操作约束写进库。与 mainagent 共用同一受管工具，web 端可改描述/schema、按 agent 勾选。
 		"goals": {ts.setGoals(), ts.setConstraints()},
@@ -71,7 +71,12 @@ func BuiltinToolSeeds() []ToolSeed {
 	m := map[string]*acc{}
 	var keys []string
 	for _, ak := range order {
+		seen := map[string]bool{}
 		for _, t := range byAgent[ak] {
+			if seen[t.Name()] {
+				continue
+			}
+			seen[t.Name()] = true
 			a, ok := m[t.Name()]
 			if !ok {
 				a = &acc{tool: t}

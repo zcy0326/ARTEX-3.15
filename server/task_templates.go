@@ -19,6 +19,8 @@ const maxTaskTemplateRequestBytes = 512 << 10
 // category_id / intercept_rules presence is detected via the raw key set (see
 // decodeTaskTemplateRequest) so a PATCH can clear category to null.
 type taskTemplateRequest struct {
+	Workflow       *string                `json:"workflow"`
+	Acceptance     *string                `json:"acceptance"`
 	Name           *string                `json:"name"`
 	Description    *string                `json:"description"`
 	Goal           *string                `json:"goal"`
@@ -126,9 +128,10 @@ func (s *Server) pgCreateTaskTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	template, err := pg.CreateTaskTemplate(db.TaskTemplateInput{
-		Name:           stringValue(req.Name),
-		Description:    stringValue(req.Description),
-		Goal:           stringValue(req.Goal),
+		Name:        stringValue(req.Name),
+		Description: stringValue(req.Description),
+		Goal:        stringValue(req.Goal),
+		Workflow:    stringValue(req.Workflow), Acceptance: stringValue(req.Acceptance),
 		CategoryID:     req.CategoryID,
 		InterceptRules: rules,
 	})
@@ -160,11 +163,11 @@ func (s *Server) pgUpdateTaskTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	_, catPresent := present["category_id"]
 	_, rulesPresent := present["intercept_rules"]
-	if req.Name == nil && req.Description == nil && req.Goal == nil && !catPresent && !rulesPresent {
+	if req.Name == nil && req.Description == nil && req.Goal == nil && req.Workflow == nil && req.Acceptance == nil && !catPresent && !rulesPresent {
 		writeErr(w, http.StatusBadRequest, "至少需要提供 name、description、goal、category_id 或 intercept_rules")
 		return
 	}
-	patch := db.TaskTemplatePatch{Name: req.Name, Description: req.Description, Goal: req.Goal}
+	patch := db.TaskTemplatePatch{Name: req.Name, Description: req.Description, Goal: req.Goal, Workflow: req.Workflow, Acceptance: req.Acceptance}
 	if catPresent {
 		patch.SetCategoryID = true
 		patch.CategoryID = req.CategoryID

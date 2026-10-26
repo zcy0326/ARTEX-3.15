@@ -124,14 +124,29 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	tsx.steerWork = m.steerWork   // enable steer_work tool (nil = unavailable)
 	// 领域工具 + 基础默认工具集（Read/Write/Edit/MultiEdit/LS/Glob/Grep/Bash）
 	// 资产覆盖度功能关闭时剔除 add_task_scope/list_untested_assets（不入 prompt）。
-	base := append(tsx.DropCoverageTools(tsx.MainAgentTools()), actool.DefaultTools()...)
+	tsx.generalWorkflow = isGeneral(ctx)
+	if isGeneral(ctx) {
+		tsx.as = nil
+		tsx.cs = nil
+		tsx.coverageDisabled = true
+	}
+	tsx.workspaceRoot = generalTaskDir(m.workDir, taskID)
+	domainTools := tsx.DropCoverageTools(tsx.MainAgentTools())
+	if isGeneral(ctx) {
+		domainTools = tsx.generalTools("mainagent")
+	}
+	base := append(domainTools, actool.DefaultTools()...)
 	ctx = WithRunInfo(ctx, RunInfo{TaskID: taskID, ExplorationID: explorationID(ts)})
 	tools, def, cleanup := AugmentTools(ctx, "mainagent", base)
 	defer cleanup()
 	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
 	mainDir := ensureRunDir(m.workDir, taskID, 0)
 	ctx = intercept.WithReviewWorkingDirectory(ctx, mainDir)
-	system, boundary := deferredSystem(mainAgentSystem(goal, m.workDir, mainDir), def)
+	sysBody := mainAgentSystem(goal, m.workDir, mainDir)
+	if isGeneral(ctx) {
+		sysBody = generalSystem(ctx, "mainagent", "mainagent") + "\n任务目标：" + goal + artifactSpec(mainDir)
+	}
+	system, boundary := deferredSystem(sysBody, def)
 	opts := agentcore.Options{
 		Provider:        m.prov,
 		SystemPrompt:    system,

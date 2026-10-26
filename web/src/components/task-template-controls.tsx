@@ -37,6 +37,8 @@ import type { AssetInterceptRuleInput, TaskCategory, TaskTemplate } from "@/lib/
 import { cn } from "@/lib/utils";
 
 interface TemplateDraft {
+  workflow: "security" | "general";
+  acceptance: string;
   name: string;
   description: string;
   goal: string;
@@ -45,7 +47,10 @@ interface TemplateDraft {
 }
 
 // TemplateSeed 是「另存为模板」时从创建表单带入的初值。
-type TemplateSeed = Pick<TemplateDraft, "description" | "goal" | "categoryID" | "interceptRules">;
+type TemplateSeed = Pick<
+  TemplateDraft,
+  "description" | "goal" | "categoryID" | "interceptRules" | "workflow" | "acceptance"
+>;
 
 interface TaskTemplateManagerProps {
   open: boolean;
@@ -59,6 +64,8 @@ interface TaskTemplateManagerProps {
 
 const emptyDraft = (): TemplateDraft => ({
   name: "",
+  workflow: "security",
+  acceptance: "",
   description: "",
   goal: "",
   categoryID: null,
@@ -68,6 +75,8 @@ const emptyDraft = (): TemplateDraft => ({
 function templateDraft(template: TaskTemplate): TemplateDraft {
   return {
     name: template.name,
+    workflow: template.workflow ?? "security",
+    acceptance: template.acceptance ?? "",
     description: template.description,
     goal: template.goal,
     categoryID: template.category_id ?? null,
@@ -106,6 +115,8 @@ function TaskTemplateManager({
         setSelectedID(null);
         setDraft({
           name: "",
+          workflow: seed.workflow,
+          acceptance: seed.acceptance,
           description: seed.description,
           goal: seed.goal,
           categoryID: seed.categoryID,
@@ -132,7 +143,10 @@ function TaskTemplateManager({
     setDraft(emptyDraft());
   };
 
-  const updateDraft = (field: "name" | "description" | "goal", value: string) => {
+  const updateDraft = <K extends "name" | "description" | "goal" | "workflow" | "acceptance">(
+    field: K,
+    value: TemplateDraft[K],
+  ) => {
     setDraft((current) => ({ ...current, [field]: value }));
   };
 
@@ -143,6 +157,8 @@ function TaskTemplateManager({
   async function save() {
     const input = {
       name: draft.name.trim(),
+      workflow: draft.workflow,
+      acceptance: draft.acceptance.trim(),
       description: draft.description.trim(),
       goal: draft.goal.trim(),
       category_id: draft.categoryID,
@@ -207,7 +223,9 @@ function TaskTemplateManager({
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>任务模板管理</SheetTitle>
-            <SheetDescription>模板保存描述、目标、分类与任务级拦截/允许规则；修改不会影响已经创建的任务。</SheetDescription>
+            <SheetDescription>
+              模板保存描述、目标、分类与任务级拦截/允许规则；修改不会影响已经创建的任务。
+            </SheetDescription>
           </SheetHeader>
           <div className="grid min-h-0 overflow-y-auto lg:grid-cols-[15rem_minmax(0,1fr)] lg:overflow-hidden">
             <div className="flex min-h-0 flex-col border-b p-3 lg:border-r lg:border-b-0">
@@ -250,6 +268,23 @@ function TaskTemplateManager({
                   />
                 </Field>
                 <Field>
+                  <FieldLabel htmlFor="task-template-workflow">任务类型</FieldLabel>
+                  <select
+                    id="task-template-workflow"
+                    className="bg-background rounded-md border p-2"
+                    value={draft.workflow}
+                    onChange={(e) => updateDraft("workflow", e.target.value as "security" | "general")}
+                  >
+                    <option value="security">安全测试</option>
+                    <option value="general">通用研究与开发</option>
+                  </select>
+                  <FieldLabel htmlFor="task-template-acceptance">验收条件</FieldLabel>
+                  <Textarea
+                    id="task-template-acceptance"
+                    value={draft.acceptance}
+                    maxLength={16000}
+                    onChange={(e) => updateDraft("acceptance", e.target.value)}
+                  />
                   <FieldLabel htmlFor="task-template-description">描述</FieldLabel>
                   <Textarea
                     id="task-template-description"
@@ -345,6 +380,8 @@ function TaskTemplateManager({
 }
 
 interface TaskTemplateControlsProps {
+  workflow?: "security" | "general";
+  acceptance?: string;
   description: string;
   goal: string;
   categoryID?: number;
@@ -356,6 +393,8 @@ interface TaskTemplateControlsProps {
 }
 
 export function TaskTemplateControls({
+  workflow = "security",
+  acceptance = "",
   description,
   goal,
   categoryID,
@@ -453,6 +492,8 @@ export function TaskTemplateControls({
               disabled={!description.trim() || !goal.trim()}
               onClick={() =>
                 openManager({
+                  workflow,
+                  acceptance,
                   description,
                   goal,
                   categoryID: categoryID ?? null,
