@@ -65,6 +65,48 @@ func TestGeneralWorkflowPersistsAndTemplatesPreserveMode(t *testing.T) {
 	}
 }
 
+func TestGeneralArchiveRestoresWorkflowAndOldArchiveDefaults(t *testing.T) {
+	d := generalDB(t)
+	task := generalTask(t, d, WorkflowGeneral)
+	var raw []byte
+	if err := d.QueryRow(`SELECT row_to_json(tasks) FROM tasks WHERE id=$1`, task.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(raw, &row); err != nil {
+		t.Fatal(err)
+	}
+	restore := func() {
+		t.Helper()
+		tx, err := d.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		if err = restoreTaskStub(tx, row, task.ID, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.Exec(`UPDATE tasks SET workflow='security',acceptance='' WHERE id=$1`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	restore()
+	loaded, err := d.GetTask(task.ID)
+	if err != nil || loaded.Workflow != WorkflowGeneral || loaded.Acceptance != task.Acceptance {
+		t.Fatalf("lost archive metadata: %+v %v", loaded, err)
+	}
+	delete(row, "workflow")
+	delete(row, "acceptance")
+	restore()
+	loaded, err = d.GetTask(task.ID)
+	if err != nil || loaded.Workflow != WorkflowSecurity || loaded.Acceptance != "" {
+		t.Fatalf("old archive compatibility: %+v %v", loaded, err)
+	}
+}
+
 func TestGeneralWorkDependenciesAndValidationRevocation(t *testing.T) {
 	d := generalDB(t)
 	task := generalTask(t, d, WorkflowGeneral)

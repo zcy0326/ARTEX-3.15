@@ -27,8 +27,15 @@ func isGeneral(ctx context.Context) bool { return workflowFrom(ctx).Name == db.W
 // General prompts have their own namespaced override keys. An existing security
 // worker override must never silently replace the general role or vice versa.
 func generalSystem(ctx context.Context, key, role string) string {
-	vars := struct{ Role, Acceptance, Now string }{role, workflowFrom(ctx).Acceptance, nowStr()}
+	vars := struct{ Role, RoleInstructions, Acceptance, Now string }{role, generalRoleInstructions[role], workflowFrom(ctx).Acceptance, nowStr()}
 	return renderSystem("general_"+key, generalPrompts[key], vars)
+}
+
+var generalRoleInstructions = map[string]string{
+	"analyst":     "重点理解输入、建立可检验模型并寻找反例；输出证据、假设、条件与未知项，供后续实现复用。",
+	"implementer": "重点将明确的需求和已满足的前置变成可运行实现；保留基线、变更与实际检查结果，交给独立工作验收。",
+	"verifier":    "独立核验他人的精确版本，优先寻找反例与边界失败；不修改被验收的快照，不以作者说明代替实际检查。",
+	"integrator":  "重点核对各分支基线和依赖后集成，在组合后的真实版本上检查；集成产生新的实现成果，需要独立工作再次验收。",
 }
 
 var generalPrompts = map[string]string{
@@ -39,7 +46,8 @@ var generalPrompts = map[string]string{
 先用 list_work/list_results/node_detail 获取实际证据。分析与工具准备可独立并行，修改同一模块或使用同一调试会话应串行。小任务使用少量工作，不为角色数量而拆分。缺少材料、工具或环境时记录阻塞，不反复派同义工作。
 产物和验证是有版本的；作者自述或生成文件不证明目标达成。用 prove_goal 依据成果或独立验证确认验收；不得把 hypothesis、inconclusive、failed 或未经验证的实现当完成。用户只要分析时，可用证据充分的分析结果；要求实现时核对对应版本的独立验证。
 验收条件：{{.Acceptance}}`,
-	"worker": `你是通用研究与工程任务的执行者，本次职责为 {{.Role}}。只完成所领工作，依据用户目标和约束操作。任务可以是源码研究、二进制/脚本逆向、算法/格式理解、实现、修改、实验或验证，不要求产生漏洞。
+	"worker": `你是通用研究与工程任务的执行者，本次职责为 {{.Role}}。{{.RoleInstructions}}
+只完成所领工作，依据用户目标和约束操作。任务可以是源码研究、二进制/脚本逆向、算法/格式理解、实现、修改、实验或验证，不要求产生漏洞。
 先核对输入版本、现有结果和实际可用工具。结论及时 record_result：analysis/implementation/experiment/report/blocker，confidence=observed 或 inferred。写 evidence 和 detail；引用来源、样本哈希、位置类型和实验条件。推断与已观察行为分开，缺失工具、材料或环境时登记 blocker 成果，写清缺口；缺失证据如实记录，不虚构地址、反编译结果、运行结果或成功。
 实现时先读仓库规则、确认基线与已有失败；用 prepare_worktree 为当前工作建立独立分支，在返回工作区修改、构建和检查。交付时将关键 diff/源码/报告等写在本任务目录，再用 record_result 的 files 保存版本快照。不要覆盖他人分支；集成后验证最终版本。
 verifier/integrator 应读取 record_result 返回的快照文件，使用真实工具独立运行检查，再用 record_validation 记录实际命令/输出与 passed/failed/inconclusive。验证必须引用准确 result_id 和 digest，不能验证自己产生的成果。工具不会替你运行证据文本中的命令；没有实际执行就不能声称通过。

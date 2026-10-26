@@ -142,7 +142,7 @@ func (i *Interceptor) SetReviewer(r Reviewer) {
 // rule system when no intercept_enabled_tools setting has been saved.
 var defaultEnabledTools = []string{
 	"Bash", "WebFetch", "web_search",
-	"shell_open", "shell_send",
+	"shell_open", "shell_send", "prepare_worktree",
 	"Write", "Edit", "MultiEdit",
 }
 

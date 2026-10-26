@@ -3,12 +3,15 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/norma/llm"
 	actool "github.com/Autumn-27/norma/tool"
 )
 
@@ -65,6 +68,87 @@ func TestGeneralPromptAndToolIsolation(t *testing.T) {
 	settlement := workflowSettlement(ctx, "worker", wrapupSettlement("worker", []string{"Bash"}))
 	if !strings.Contains(settlement.Prompt, "record_result") || strings.Contains(settlement.Prompt, "report_finding") {
 		t.Fatal("wrong general settlement")
+	}
+}
+
+// A scripted model drives the real harness and actual managed tools. It makes
+// no network requests and captures the effective prompt/tool contract.
+type generalActionProvider struct {
+	name   string
+	input  json.RawMessage
+	calls  int
+	prompt string
+	tools  map[string]bool
+}
+
+func (p *generalActionProvider) Stream(context.Context, llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
+	return func(yield func(llm.StreamEvent, error) bool) {
+		yield(llm.StreamEvent{}, fmt.Errorf("fixture expects non-streaming"))
+	}
+}
+func (p *generalActionProvider) Complete(_ context.Context, request llm.CompletionRequest) (llm.Message, string, llm.Usage, error) {
+	p.calls++
+	p.prompt = strings.Join(request.System, "\n")
+	p.tools = map[string]bool{}
+	for _, tool := range request.Tools {
+		p.tools[tool.Name] = true
+	}
+	if p.calls == 1 {
+		return llm.Message{Role: llm.RoleAssistant, Content: []llm.ContentBlock{{Type: llm.BlockToolUse, ID: "general-action", Name: p.name, Input: p.input}}}, "tool_use", llm.Usage{}, nil
+	}
+	return llm.Message{Role: llm.RoleAssistant, Content: []llm.ContentBlock{llm.TextBlock("fixture complete")}}, "end_turn", llm.Usage{}, nil
+}
+
+func TestGeneralActualWorkerPlannerWorkProducts(t *testing.T) {
+	d := testDB(t)
+	t.Cleanup(func() { _ = d.Close() })
+	task, err := d.CreateTaskWithOptions("analysis fixture", "deliver analysis", db.TaskCreateOptions{Workflow: db.WorkflowGeneral, Acceptance: "a saved report"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.DeleteTask(task.ID) })
+	store := d.Exploration(task.ExplorationID)
+	id, err := store.AddWork("analyze fixture", "analyst", "a saved report", "planner", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := store.ClaimIntent(id, "worker"); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	intent, err := store.GetNode(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	dir := ensureRunDir(base, task.ID, id)
+	if err = os.WriteFile(filepath.Join(dir, "report.txt"), []byte("controlled analysis result"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	input, _ := json.Marshal(map[string]any{"summary": "format analysis", "result_type": "analysis", "confidence": "observed", "evidence": "controlled fixture output", "files": []string{"report.txt"}})
+	provider := &generalActionProvider{name: "record_result", input: input}
+	worker := NewWorker(provider, "fixture", base, nil, 100000, 4)
+	worker.SetNonStreaming(func() bool { return true })
+	ctx := WithWorkflow(t.Context(), db.WorkflowGeneral, task.Acceptance)
+	notifications := 0
+	_, writes, err := worker.Execute(ctx, "worker", task.ID, nil, store, intent, nil, nil, nil, nil, func(int64, string) { notifications++ })
+	if err != nil || writes.Facts != 1 || notifications != 1 || !provider.tools["record_result"] || provider.tools["report_finding"] || !strings.Contains(provider.prompt, task.Acceptance) {
+		t.Fatalf("worker contract/result: writes=%+v notifications=%d err=%v tools=%v", writes, notifications, err, provider.tools)
+	}
+	records, _, err := store.WorkRecords(0, 30)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records: %v %v", records, err)
+	}
+	goal, err := store.AddGoal(map[string]any{"text": "deliver analysis"}, "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ = json.Marshal(map[string]any{"goal_id": goal, "evidence_id": records[0].ID, "reason": "saved observed analysis"})
+	plannerProvider := &generalActionProvider{name: "prove_goal", input: input}
+	planner := NewPlanner(plannerProvider, "fixture", base, nil, 100000, 4)
+	planner.SetNonStreaming(func() bool { return true })
+	met, _, err := planner.Plan(ctx, task.ID, nil, store, task.Goal, nil, nil)
+	if err != nil || !met || !plannerProvider.tools["add_work"] || plannerProvider.tools["add_intent"] {
+		t.Fatalf("planner contract/completion: %v %v %v", met, err, plannerProvider.tools)
 	}
 }
 

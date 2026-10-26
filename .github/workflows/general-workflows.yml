@@ -2,7 +2,7 @@ name: General workflows
 
 on:
   push:
-    branches: [codex/general-workflows]
+    branches: [main]
   pull_request:
     paths:
       - 'agent/**'
@@ -11,6 +11,10 @@ on:
       - 'workproduct/**'
       - 'web/**'
       - '.github/workflows/general-workflows.yml'
+
+concurrency:
+  group: general-workflows-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

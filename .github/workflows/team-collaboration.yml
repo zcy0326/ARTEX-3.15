@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ matrix.revision == 'baseline' && 'f3e3f54b6c93916388a0a3dc6a439893a9abe37a' || github.sha }}
+          ref: ${{ matrix.revision == 'baseline' && (github.event.pull_request.base.sha || 'a3755846ca8bcf01687e1bb7dc6ed4a86d2f29e1') || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
