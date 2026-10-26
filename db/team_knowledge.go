@@ -41,6 +41,12 @@ WITH visible AS (
 ), parents AS (
     SELECT src_id FROM exploration_edges
     WHERE exploration_id=$1 AND dst_id=$2 AND rel='derived_from'
+    UNION
+    SELECT dst_id FROM exploration_edges WHERE exploration_id=$1 AND src_id=$2 AND rel='requires_validation'
+    UNION
+    SELECT produced.dst_id FROM exploration_edges requirement
+    JOIN exploration_edges produced ON produced.src_id=requirement.dst_id AND produced.rel='yields'
+    WHERE requirement.exploration_id=$1 AND requirement.src_id=$2 AND requirement.rel='requires'
 ), targets AS (
     SELECT asset_id FROM exploration_anchors WHERE node_id=$2
 )

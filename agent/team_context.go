@@ -114,7 +114,7 @@ func renderTeamKnowledge(items []db.TeamKnowledge, initial bool) (string, []int6
 			row["source_task_id"], row["inherited"] = n.SourceTaskID, true
 		}
 		truncated := false
-		for _, key := range []string{"summary", "detail", "evidence", "confidence", "vulnclass", "severity"} {
+		for _, key := range []string{"summary", "detail", "evidence", "confidence", "vulnclass", "severity", "record_type", "result_type", "digest", "verdict", "result_digest"} {
 			value, exists := payload[key]
 			if !exists {
 				continue
@@ -136,6 +136,11 @@ func renderTeamKnowledge(items []db.TeamKnowledge, initial bool) (string, []int6
 				text, truncated = string(runes[:limit])+"…", true
 			}
 			row[key] = text
+		}
+		for _, key := range []string{"result_id", "producer_intent_id", "validator_intent_id"} {
+			if value, ok := payload[key]; ok {
+				row[key] = value
+			}
 		}
 		if truncated {
 			row["truncated"] = true

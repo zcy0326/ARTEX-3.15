@@ -49,6 +49,18 @@ import { OverviewTab } from "./_tabs/overview-tab";
 import { ReportTab } from "./_tabs/report-tab";
 import { RetestsTab } from "./_tabs/retests-tab";
 import { SessionsTab } from "./_tabs/sessions-tab";
+import { ResultsTab } from "./_tabs/results-tab";
+import { GeneralOverview, WorkTab } from "./_tabs/work-tab";
+
+const GENERAL_TABS = [
+  { value: "sessions", label: "会话" },
+  { value: "overview", label: "目标与材料" },
+  { value: "work", label: "工作与分工" },
+  { value: "results", label: "成果与验证" },
+  { value: "graph", label: "知识与链路" },
+  { value: "broadcast", label: "播报板" },
+  { value: "intercept", label: "拦截审批" },
+];
 
 const TABS = [
   { value: "sessions", label: "会话" },
@@ -401,7 +413,7 @@ function TaskDetailInner() {
         {/* Tabs */}
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <TabsList variant="default" className="min-w-max">
-            {TABS.map((t) => (
+            {(task.workflow === "general" ? GENERAL_TABS : TABS).map((t) => (
               <TabsTrigger key={t.value} value={t.value}>
                 {t.label}
                 {t.value === "intercept" && interceptPendingCount > 0 && (
@@ -421,7 +433,13 @@ function TaskDetailInner() {
           <SessionsTab taskId={id} />
         </TabsContent>
         <TabsContent value="overview" className="mt-0">
-          <OverviewTab taskId={id} />
+          {task.workflow === "general" ? <GeneralOverview task={task} /> : <OverviewTab taskId={id} />}
+        </TabsContent>
+        <TabsContent value="work" className="mt-0">
+          <WorkTab key={id} taskId={id} />
+        </TabsContent>
+        <TabsContent value="results" className="mt-0">
+          <ResultsTab key={id} taskId={id} />
         </TabsContent>
         <TabsContent value="graph" className="mt-0">
           <GraphTab taskId={id} />

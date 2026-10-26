@@ -1171,8 +1171,8 @@ WHERE exploration_id=$1 AND kind='goal' AND state='open')`, s.expID).Scan(&exist
 
 // ClaimIntent atomically moves an open intent to running. Returns true if claimed.
 func (s *ExplorationStore) ClaimIntent(id int64, owner string) (bool, error) {
-	res, err := s.db.Exec(`UPDATE exploration_nodes SET state='running', owner=$1
-WHERE id=$2 AND exploration_id=$3 AND kind='intent' AND state='open'`, owner, id, s.expID)
+	res, err := s.db.Exec(`UPDATE exploration_nodes n SET state='running', owner=$1
+WHERE id=$2 AND exploration_id=$3 AND kind='intent' AND state='open' `+workReadySQL, owner, id, s.expID)
 	if err != nil {
 		return false, err
 	}

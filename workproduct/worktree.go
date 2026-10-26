@@ -1,0 +1,42 @@
+package workproduct
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type Worktree struct {
+	Path       string `json:"path"`
+	Branch     string `json:"branch"`
+	BaseCommit string `json:"base_commit"`
+}
+
+// PrepareWorktree creates a branch per intent; it never resets/cleans the source
+// repo and refuses an existing destination instead of overwriting user changes.
+func PrepareWorktree(ctx context.Context, repo, taskRoot string, intentID int64) (Worktree, error) {
+	var result Worktree
+	if !filepath.IsAbs(repo) || intentID <= 0 {
+		return result, fmt.Errorf("repo 必须是绝对路径，且需要当前工作 ID")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	git := func(args ...string) (string, error) {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-C", repo}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("git: %w: %.2000s", err, out)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	base, err := git("rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return result, err
+	}
+	result = Worktree{filepath.Join(taskRoot, fmt.Sprintf("worktree-%d", intentID)), fmt.Sprintf("artex/task-%s/work-%d", filepath.Base(taskRoot), intentID), base}
+	_, err = git("worktree", "add", "-b", result.Branch, "--", result.Path, base)
+	return result, err
+}

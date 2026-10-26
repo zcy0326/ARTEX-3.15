@@ -685,6 +685,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/tasks/{id}", s.updateTaskMetadata)
 	mux.HandleFunc("PATCH /api/tasks/{id}/category", s.updateTaskCategory)
 	// 任务级资产拦截/允许规则
+	mux.HandleFunc("GET /api/tasks/{id}/results", s.taskWorkResults)
+	mux.HandleFunc("GET /api/tasks/{id}/work", s.taskWorkList)
+	mux.HandleFunc("GET /api/tasks/{id}/results/{result}/files/{file}", s.taskResultFile)
 	mux.HandleFunc("GET /api/tasks/{id}/intercept-rules", s.taskInterceptListRules)
 	mux.HandleFunc("POST /api/tasks/{id}/intercept-rules", s.taskInterceptCreateRule)
 	mux.HandleFunc("PUT /api/tasks/{id}/intercept-rules/{rid}", s.taskInterceptUpdateRule)
@@ -1443,6 +1446,8 @@ func truncateReply(s string) string {
 }
 
 type createTaskReq struct {
+	Workflow             string   `json:"workflow"`
+	Acceptance           string   `json:"acceptance"`
 	Name                 string   `json:"name,omitempty"` // 可选任务名称;省略/空=未命名
 	CategoryID           *int64   `json:"category_id,omitempty"`
 	Description          string   `json:"description"`
@@ -1463,6 +1468,11 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req createTaskReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	workflow, workflowErr := db.NormalizeWorkflow(req.Workflow)
+	if workflowErr != nil || len(req.Acceptance) > 16000 {
+		writeErr(w, 400, "workflow 无效或验收条件过长")
 		return
 	}
 	if strings.TrimSpace(req.Description) == "" {
@@ -1510,6 +1520,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.m.CreateTaskWithOptions(req.Description, req.Goal, db.TaskCreateOptions{
 		Name: strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
+		Workflow: workflow, Acceptance: req.Acceptance,
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
 		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
 		CoverageEnabled: req.CoverageEnabled,
@@ -1665,6 +1676,9 @@ func (s *Server) llmHost() string {
 }
 
 func (s *Server) seed(t *Task, text string) {
+	if t.Workflow == db.WorkflowGeneral {
+		return
+	}
 	scheme, host, port, ok := parseTarget(text)
 	if !ok {
 		log.Printf("[seed] task %s: 未能从 %q 解析出目标 host/IP，不创建站点（请手动配置 scope）", t.ID, text)
@@ -3749,7 +3763,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			taskDir := filepath.Join(s.m.dir, "tasks", t.ID)
 			agentMsg := composeAgentMessage(agentMessage, req.Attachments, taskDir)
 			s.engine.BeginLLMCall(t.ID)
-			_, err := ma.Chat(ctx, maTaskID, mainSeg, s.m.Assets(), t.Store, t.Goal, agentMsg, emit, t.Notify, resume, t.NotifyGoal, t.NotifyHint)
+			_, err := ma.Chat(agent.WithWorkflow(ctx, t.Workflow, t.Acceptance), maTaskID, mainSeg, s.m.Assets(), t.Store, t.Goal, agentMsg, emit, t.Notify, resume, t.NotifyGoal, t.NotifyHint)
 			s.engine.EndLLMCall(t.ID)
 			if err != nil && ctx.Err() == nil {
 				s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", IsError: true, Summary: "（主 Agent 出错：" + err.Error() + "）", MainSeg: segPtr})

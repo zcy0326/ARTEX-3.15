@@ -253,7 +253,7 @@ CREATE TABLE IF NOT EXISTS exploration_edges (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (exploration_id, src_id, rel, dst_id),
     CONSTRAINT ck_edge_noself CHECK (src_id <> dst_id),
-    CONSTRAINT ck_edge_rel CHECK (rel IN ('spawns','derived_from','yields','proves','covers'))
+    CONSTRAINT ck_edge_rel CHECK (rel IN ('spawns','derived_from','yields','proves','covers','requires','requires_validation'))
 );
 CREATE INDEX IF NOT EXISTS idx_expedges_src ON exploration_edges(src_id, rel);
 CREATE INDEX IF NOT EXISTS idx_expedges_dst ON exploration_edges(dst_id, rel);
@@ -265,11 +265,11 @@ BEGIN
     SELECT conname INTO cname FROM pg_constraint
      WHERE conrelid='exploration_edges'::regclass AND contype='c'
        AND pg_get_constraintdef(oid) LIKE '%rel%'
-       AND pg_get_constraintdef(oid) NOT LIKE '%covers%';
+       AND pg_get_constraintdef(oid) NOT LIKE '%requires_validation%';
     IF cname IS NOT NULL THEN
         EXECUTE 'ALTER TABLE exploration_edges DROP CONSTRAINT '||quote_ident(cname);
         ALTER TABLE exploration_edges ADD CONSTRAINT ck_edge_rel
-            CHECK (rel IN ('spawns','derived_from','yields','proves','covers'));
+            CHECK (rel IN ('spawns','derived_from','yields','proves','covers','requires','requires_validation'));
     END IF;
 END $$;
 
@@ -546,6 +546,9 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS queued BOOLEAN NOT NULL DEFAULT false
 -- 给 agent 开放 add_task_scope/list_untested_assets;false=全部关闭(见 task_scope.go)。
 -- 存量任务默认 true 保持原行为;company 关联(task_scope kind=company)不受此开关影响。
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS coverage_enabled BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workflow TEXT NOT NULL DEFAULT 'security' CHECK(workflow IN ('security','general'));
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS acceptance TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_work_records ON exploration_nodes(exploration_id,id DESC) WHERE kind='fact' AND payload->>'record_type' IN ('result','validation');
 -- queued_at makes admission FIFO reflect the actual enqueue order rather than the
 -- task creation order. queue_mode distinguishes first bootstrap from resuming an
 -- exploration that already owns goals/history.
@@ -626,6 +629,8 @@ CREATE TABLE IF NOT EXISTS task_templates (
 -- 补旧库(已发版,加列带 IF NOT EXISTS)。
 ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS category_id BIGINT REFERENCES task_categories(id) ON DELETE SET NULL;
 ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS intercept_rules JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS workflow TEXT NOT NULL DEFAULT 'security' CHECK(workflow IN ('security','general'));
+ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS acceptance TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_task_templates_updated ON task_templates(updated_at DESC, id DESC);
 DROP TRIGGER IF EXISTS trg_task_templates_upd ON task_templates;
 CREATE TRIGGER trg_task_templates_upd BEFORE UPDATE ON task_templates

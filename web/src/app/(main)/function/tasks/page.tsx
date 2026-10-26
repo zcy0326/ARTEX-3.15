@@ -951,7 +951,7 @@ export default function TasksPage() {
                     />
                     <TableHead className="text-center">目标进度</TableHead>
                     <TableHead className="text-center" title="严重 / 高 / 中 / 低">
-                      漏洞 <span className="text-muted-foreground font-normal">严/高/中/低</span>
+                      成果 / 漏洞 <span className="text-muted-foreground font-normal">严/高/中/低</span>
                     </TableHead>
                     <TableHead className="text-center">运行中 Worker</TableHead>
                     <SortableTaskHead
@@ -1192,6 +1192,7 @@ const TaskRow = React.memo(function TaskRow({
       <TableCell className="font-medium">
         <div className="flex max-w-xs items-center gap-2">
           <TaskNameEditor task={task} onRename={onRename} />
+          {task.workflow === "general" && <Badge variant="outline">通用</Badge>}
           {task.active && <StarIcon className="size-4 shrink-0 fill-amber-400 text-amber-400" />}
           {taskIsPinned(task) && <PinIcon className="text-primary size-4 shrink-0" aria-label="已置顶" />}
         </div>
@@ -1220,12 +1221,16 @@ const TaskRow = React.memo(function TaskRow({
       </TableCell>
       <TableCell className="text-center text-xs tabular-nums">
         {(() => {
+          if (task.workflow === "general")
+            return (
+              <Link className="text-primary hover:underline" href={`/function/tasks/detail?id=${task.id}`}>
+                查看成果
+              </Link>
+            );
           const f = task.findings;
           const total = f ? f.critical + f.high + f.medium + f.low : 0;
           if (!f || total === 0) return <span className="text-muted-foreground">0</span>;
-          const seg = (n: number, cls: string) => (
-            <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>
-          );
+          const seg = (n: number, cls: string) => <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>;
           return (
             <span className="font-medium whitespace-nowrap" title="严重 / 高 / 中 / 低">
               {seg(f.critical, "text-rose-600 dark:text-rose-400")}
@@ -3085,6 +3090,8 @@ function CreateTaskSheet({
   const [creating, setCreating] = React.useState(false);
   const [timeoutMin, setTimeoutMin] = React.useState(""); // 任务级超时(分钟);空/0 = 不限时
   const [heartbeatMin, setHeartbeatMin] = React.useState("10"); // planner 心跳(分钟);默认10,下限10(与后端一致)
+  const [workflow, setWorkflow] = React.useState<"security" | "general">("security");
+  const [acceptance, setAcceptance] = React.useState("");
   const [seedFirstIntent, setSeedFirstIntent] = React.useState(false); // 创建时下发种子意图,worker 免等首轮 planner 直接开跑;默认关闭,走标准先规划再执行
   const [coverageEnabled, setCoverageEnabled] = React.useState(true); // 资产覆盖度功能;默认开。关闭=不计算/展示覆盖度、不累积范围、隐藏范围类工具(company 关联不受影响)
   const [interceptRules, setInterceptRules] = React.useState<AssetInterceptRuleInput[]>([]); // 任务级资产拦截规则(仅本任务生效,不进全局表)
@@ -3144,6 +3151,8 @@ function CreateTaskSheet({
       const heartbeatSec = Math.max(10, Math.floor(Number(heartbeatMin) || 10)) * 60; // 下限 10min，与后端归一一致
       await api.createTask({
         name: name.trim(),
+        workflow,
+        acceptance: acceptance.trim(),
         categoryId: categoryID,
         description: description.trim(),
         goal: goal.trim(),
@@ -3164,6 +3173,8 @@ function CreateTaskSheet({
       setDescription("");
       setGoal("");
       setSelectedTemplateID(null);
+      setWorkflow("security");
+      setAcceptance("");
       setSourceTaskIDs([]);
       setCompanyIDs([]);
       setLLMProfileIDs([]);
@@ -3199,13 +3210,15 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>新建任务</SheetTitle>
-          <SheetDescription>填写测试对象与目标，高级参数可按需展开。</SheetDescription>
+          <SheetDescription>填写任务材料、目标与验收条件，高级参数可按需展开。</SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
           <div className="grid gap-5">
             <TaskTemplateControls
               description={description}
+              workflow={workflow}
+              acceptance={acceptance}
               goal={goal}
               categoryID={categoryID}
               interceptRules={interceptRules}
@@ -3214,6 +3227,8 @@ function CreateTaskSheet({
               onApply={(template) => {
                 setDescription(template.description);
                 setGoal(template.goal);
+                setWorkflow(template.workflow ?? "security");
+                setAcceptance(template.acceptance ?? "");
                 setCategoryID(template.category_id ?? undefined);
                 setInterceptRules(template.intercept_rules ?? []);
                 setUploadCount(0);
@@ -3241,11 +3256,28 @@ function CreateTaskSheet({
               <FieldDescription>可选，单个分类；用于任务列表筛选和归档，不影响 Agent 执行。</FieldDescription>
             </Field>
             <div className="grid gap-2">
+              <Label htmlFor="task-workflow">任务类型</Label>
+              <select
+                id="task-workflow"
+                className="bg-background rounded-md border px-3 py-2 text-sm"
+                value={workflow}
+                onChange={(e) => setWorkflow(e.target.value as "security" | "general")}
+              >
+                <option value="security">安全测试</option>
+                <option value="general">通用研究与开发</option>
+              </select>
+              <p className="text-muted-foreground text-xs">
+                通用任务支持分析、逆向、实现、实验和报告，按工作分配职责并记录版本与验证。
+              </p>
               <Label htmlFor="description">描述</Label>
               <Textarea
                 id="description"
                 className="min-h-32"
-                placeholder="测试对象与背景，例如：测试 example.com 这个站点"
+                placeholder={
+                  workflow === "general"
+                    ? "材料、仓库或样本路径、环境、背景和约束"
+                    : "测试对象与背景，例如：测试 example.com 这个站点"
+                }
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -3280,11 +3312,25 @@ function CreateTaskSheet({
               <Textarea
                 id="goal"
                 className="min-h-32"
-                placeholder="要达成什么，例如：拿下后台管理权限、获取服务器权限"
+                placeholder={
+                  workflow === "general"
+                    ? "希望交付什么，例如：还原文件格式并开发经过对照验证的解析器"
+                    : "要达成什么，例如：拿下后台管理权限、获取服务器权限"
+                }
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
               />
             </div>
+            <Field>
+              <FieldLabel htmlFor="acceptance">验收条件（可选）</FieldLabel>
+              <Textarea
+                id="acceptance"
+                value={acceptance}
+                maxLength={16000}
+                onChange={(e) => setAcceptance(e.target.value)}
+                placeholder="怎样证明完成：测试命令、样例、行为要求或交付文件"
+              />
+            </Field>
             <Field>
               <FieldLabel htmlFor="source-tasks">关联任务</FieldLabel>
               <SourceTaskPicker

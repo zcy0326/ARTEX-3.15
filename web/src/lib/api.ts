@@ -248,6 +248,8 @@ export const api = {
     get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
   task: (id: string) => get<Task>(`/tasks/${encodeURIComponent(id)}`),
   createTask: (input: {
+    workflow?: "security" | "general";
+    acceptance?: string;
     name?: string;
     categoryId?: number;
     description: string;
@@ -263,6 +265,8 @@ export const api = {
   }) =>
     post<Task>("/tasks", {
       name: input.name ?? "",
+      workflow: input.workflow ?? "security",
+      acceptance: input.acceptance ?? "",
       category_id: input.categoryId ?? null,
       description: input.description,
       goal: input.goal,
@@ -275,6 +279,28 @@ export const api = {
       coverage_enabled: input.coverageEnabled ?? true, // 默认开;false=关闭资产覆盖度功能
       intercept_rules: input.interceptRules ?? [], // 任务级资产拦截规则
     }),
+  workResults: (id: string, before?: number) =>
+    get<import("./types").WorkRecordsPage>(
+      `/tasks/${encodeURIComponent(id)}/results${before ? `?before=${before}` : ""}`,
+    ),
+  taskWork: (id: string) =>
+    get<{ work: import("./types").WorkRecord[] }>(`/tasks/${encodeURIComponent(id)}/work`).then((r) => arr(r.work)),
+  downloadWorkArtifact: async (taskId: string, resultId: number, index: number, name: string) => {
+    const token = getToken();
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/results/${resultId}/files/${index}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: "下载失败" }));
+      throw new Error(error.error ?? "下载失败");
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
   taskCategories: () => get<{ categories: TaskCategory[] }>("/task-categories").then((r) => arr(r.categories)),
   updateTask: (id: string, input: { name?: string; pinned?: boolean }) => patch<Task>(`/tasks/${id}`, input),
   renameTask: (id: string, name: string) => patch<Task>(`/tasks/${id}`, { name }),
@@ -292,11 +318,19 @@ export const api = {
     }),
   taskTemplates: () => get<{ templates: TaskTemplate[] }>("/task-templates").then((r) => arr(r.templates)),
   createTaskTemplate: (
-    input: Pick<TaskTemplate, "name" | "description" | "goal" | "category_id" | "intercept_rules">,
+    input: Pick<
+      TaskTemplate,
+      "name" | "description" | "goal" | "category_id" | "intercept_rules" | "workflow" | "acceptance"
+    >,
   ) => post<TaskTemplate>("/task-templates", input),
   updateTaskTemplate: (
     id: number,
-    input: Partial<Pick<TaskTemplate, "name" | "description" | "goal" | "category_id" | "intercept_rules">>,
+    input: Partial<
+      Pick<
+        TaskTemplate,
+        "name" | "description" | "goal" | "category_id" | "intercept_rules" | "workflow" | "acceptance"
+      >
+    >,
   ) => patch<TaskTemplate>(`/task-templates/${id}`, input),
   deleteTaskTemplate: (id: number) => del<{ deleted: number }>(`/task-templates/${id}`),
   updateTaskLLMProfiles: (id: string, llmProfileIds: number[], activeLLMProfileId?: number) =>
@@ -825,8 +859,7 @@ export const api = {
   // 渠道是多实例资源（同一类型可配多个机器人、各有过滤规则），因此独立成组，
   // 不塞进扁平的 settings 键值里。
   notifyMeta: () => get<NotificationMeta>(`/notify/meta`),
-  notifyChannels: () =>
-    get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
+  notifyChannels: () => get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
   notifyCreateChannel: (payload: {
     name: string;
     kind: string;

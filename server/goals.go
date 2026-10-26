@@ -381,6 +381,7 @@ func (s *Server) createGoals(ctx context.Context, t *Task, emit func(db.Activity
 	if s.m != nil {
 		as = s.m.Assets()
 	}
+	ctx = agent.WithWorkflow(ctx, t.Workflow, t.Acceptance)
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	s.engine.BeginLLMCall(t.ID)
 	goalRuntime := s.agentsForTask(t).runtime

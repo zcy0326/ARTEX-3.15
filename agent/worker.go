@@ -377,7 +377,13 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// base = built-in worker tools ∪ host tools (traffic) ∪ default tools (incl. Bash);
 	// then augment with the agent's visible skills/MCP. During the SDK settlement
 	// phase, Bash is hidden via Settlement.DisabledTools (no local gating needed).
-	base := append(tsx.WorkerTools(), w.extraTools...)
+	runDir := ensureRunDir(w.workDir, taskID, intent.ID)
+	tsx.setupGeneral(ctx, generalTaskDir(w.workDir, taskID), runDir, intent)
+	domainTools := tsx.WorkerTools()
+	if isGeneral(ctx) {
+		domainTools = tsx.generalTools("worker")
+	}
+	base := append(domainTools, w.extraTools...)
 	// worker 刻意不给 MultiEdit/Glob/Grep：文件精改用 Edit、检索走 Bash(grep/find)，
 	// 收敛工具面、减少低价值调用。其余 SDK 默认工具(Read/Write/Edit/LS/Bash/Sleep)照常。
 	base = append(base, defaultToolsExcept("MultiEdit", "Glob", "Grep")...)
@@ -394,18 +400,27 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// 与 planner「态势块放 user turn」分叉是有意的：planner 本身是产意图的那个、没有单一 mandate，
 	// worker 有。仅【全局态势 overview】留在启动 user 消息里——它可降级、容忍 stale，压掉无碍。
 	// 本次意图的专属工作目录 <workDir>/tasks/<taskID>/i<intentID>，引擎侧先建好。
-	runDir := ensureRunDir(w.workDir, taskID, intent.ID)
 	// The run-wide intent is not the current tool action. Do not forward it or
 	// inherit a parent run's background into the action reviewer.
 	ctx = intercept.WithReviewContext(ctx, runDir, intercept.ReviewBackground{})
-	overview := renderWorkerGraphOverview(tsx.graphOverviewData())
+	overviewData := tsx.graphOverviewData()
+	overview := renderWorkerGraphOverview(overviewData)
+	if isGeneral(ctx) {
+		overview = renderGeneralOverview(overviewData)
+	}
 	sysBody := workerSystem(w.proxyAddr, w.proxyCACert, w.workDir, runDir)
+	if isGeneral(ctx) {
+		sysBody = generalSystem(ctx, "worker", workRole(intent)) + workerArtifactSpec(runDir)
+	}
 	if w.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,worker 执行时严格遵守
 	}
 	// 意图块 → 意图锚定资产块 → 启动指令，依次追加到 system 尾部（与 constraintBlock 同一套追加法）。
-	sysBody += renderIntentTask(intent)
-	sysBody += teamGuidance + team.poll(ctx, true)
+	if isGeneral(ctx) {
+		sysBody += fmt.Sprintf("\n\n【本次工作】ID: %d\n%s", intent.ID, intent.Payload) + generalTeamGuidance + team.poll(ctx, true)
+	} else {
+		sysBody += renderIntentTask(intent) + teamGuidance + team.poll(ctx, true)
+	}
 	if as != nil {
 		if ids := intentAssetIDs(intent); len(ids) > 0 {
 			if assets, err := as.GetByIDs(ids); err == nil && len(assets) > 0 {
@@ -424,7 +439,11 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 			}
 		}
 	}
-	sysBody += "\n\n开始执行上面这条意图：只做它、只产生事实、assets、finding、做完即停。"
+	if isGeneral(ctx) {
+		sysBody += "\n\n完成当前工作并保存实际成果与证据，然后停止。"
+	} else {
+		sysBody += "\n\n开始执行上面这条意图：只做它、只产生事实、assets、finding、做完即停。"
+	}
 	system, boundary := deferredSystem(sysBody, def)
 	// 任务级 deadline(经 ctx 注入)夹逼本 run 的墙钟预算 + 决定收尾词(见 taskclock.go)。
 	tc := taskClockFrom(ctx)
@@ -466,7 +485,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 		// 命中预算(轮次 OR 时长)→ SDK 跑一轮收尾(隐藏 Bash),把已识别的写回,避免烂尾。
 		// clamped(被任务 deadline 夹逼)时用 PromptByReason:因超时=任务到点→任务超时词,
 		// 因步数=夹逼窗口内步数先耗尽→回落 per-run 词。非 clamped 维持纯 per-run。
-		Settlement: settle,
+		Settlement: workflowSettlement(ctx, "worker", settle),
 		// large tool output spills to cmd-output/ with a head + pointer (SDK tool.Capture);
 		// full output preserved on disk. 截断上限用 SDK 默认(30000 字符)。
 		ToolOutputDir: cmdOutDir(runDir),
